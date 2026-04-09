@@ -1,0 +1,99 @@
+{
+  "name": "CapybaraEscape",
+  "tree": {
+    "$className": "DataModel",
+    "ServerScriptService": {
+      "$className": "ServerScriptService",
+      "GameManager": {
+        "$path": "src/ServerScriptService/GameManager.server.lua"
+      },
+      "Modules": {
+        "$className": "Folder",
+        "MazeModule": {
+          "$path": "src/ServerScriptService/Modules/MazeModule.lua"
+        },
+        "PlayerManager": {
+          "$path": "src/ServerScriptService/Modules/PlayerManager.lua"
+        },
+        "HunterAI": {
+          "$path": "src/ServerScriptService/Modules/HunterAI.lua"
+        },
+        "ItemManager": {
+          "$path": "src/ServerScriptService/Modules/ItemManager.lua"
+        }
+      }
+    },
+    "StarterPlayer": {
+      "$className": "StarterPlayer",
+      "StarterPlayerScripts": {
+        "$className": "StarterPlayerScripts",
+        "ClientUI": {
+          "$path": "src/StarterPlayerScripts/ClientUI.client.lua"
+        },
+        "LobbyUI": {
+          "$path": "src/StarterPlayerScripts/LobbyUI.client.lua"
+        },
+        "BGM": {
+          "$path": "src/StarterPlayerScripts/BGM.client.lua"
+        }
+      },
+      "StarterCharacterScripts": {
+        "$className": "StarterCharacterScripts",
+        "CapybaraAnimate": {
+          "$path": "src/StarterCharacterScripts/CapybaraAnimate.client.lua"
+        }
+      }
+    },
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "Events": {
+        "$className": "Folder",
+        "StageStarted": {
+          "$className": "RemoteEvent"
+        },
+        "PlayerEliminated": {
+          "$className": "RemoteEvent"
+        },
+        "GameOver": {
+          "$className": "RemoteEvent"
+        },
+        "UpdateHUD": {
+          "$className": "RemoteEvent"
+        },
+        "TrapPlaced": {
+          "$className": "RemoteEvent"
+        },
+        "ReadyUp": {
+          "$className": "RemoteEvent"
+        },
+        "HunterAlert": {
+          "$className": "RemoteEvent"
+        },
+        "CharacterSelected": {
+          "$className": "RemoteEvent"
+        },
+        "CarrotChoice": {
+          "$className": "RemoteEvent"
+        },
+        "SmokePlaced": {
+          "$className": "RemoteEvent"
+        },
+        "GraffitiPlaced": {
+          "$className": "RemoteEvent"
+        },
+        "TowerCleared": {
+          "$className": "RemoteEvent"
+        },
+        "SmokeCanceled": {
+          "$className": "RemoteEvent"
+        }
+      },
+      "Shared": {
+        "$className": "Folder",
+        "Constants": {
+          "$path": "src/ReplicatedStorage/Shared/Constants.lua"
+        }
+      }
+    }
+  }
+}

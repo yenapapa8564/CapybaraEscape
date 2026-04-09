@@ -1,0 +1,2938 @@
+<roblox version="4">
+  <Item class="ReplicatedStorage" referent="0">
+    <Properties>
+      <string name="Name">ReplicatedStorage</string>
+    </Properties>
+    <Item class="Folder" referent="1">
+      <Properties>
+        <string name="Name">Events</string>
+      </Properties>
+      <Item class="RemoteEvent" referent="2">
+        <Properties>
+          <string name="Name">CarrotChoice</string>
+        </Properties>
+      </Item>
+      <Item class="RemoteEvent" referent="3">
+        <Properties>
+          <string name="Name">CharacterSelected</string>
+        </Properties>
+      </Item>
+      <Item class="RemoteEvent" referent="4">
+        <Properties>
+          <string name="Name">ColorSelected</string>
+        </Properties>
+      </Item>
+      <Item class="RemoteEvent" referent="5">
+        <Properties>
+          <string name="Name">GameOver</string>
+        </Properties>
+      </Item>
+      <Item class="RemoteEvent" referent="6">
+        <Properties>
+          <string name="Name">HunterAlert</string>
+        </Properties>
+      </Item>
+      <Item class="RemoteEvent" referent="7">
+        <Properties>
+          <string name="Name">PlayerEliminated</string>
+        </Properties>
+      </Item>
+      <Item class="RemoteEvent" referent="8">
+        <Properties>
+          <string name="Name">ReadyUp</string>
+        </Properties>
+      </Item>
+      <Item class="RemoteEvent" referent="9">
+        <Properties>
+          <string name="Name">StageStarted</string>
+        </Properties>
+      </Item>
+      <Item class="RemoteEvent" referent="10">
+        <Properties>
+          <string name="Name">TrapPlaced</string>
+        </Properties>
+      </Item>
+      <Item class="RemoteEvent" referent="11">
+        <Properties>
+          <string name="Name">UpdateHUD</string>
+        </Properties>
+      </Item>
+    </Item>
+    <Item class="Folder" referent="12">
+      <Properties>
+        <string name="Name">Shared</string>
+      </Properties>
+      <Item class="ModuleScript" referent="13">
+        <Properties>
+          <string name="Name">Constants</string>
+          <string name="Source"><![CDATA[-- ReplicatedStorage/Shared/Constants
+local Constants = {}
+
+-- 미로 크기 (스테이지별)
+Constants.MAZE_SIZES = {
+    [1] = 10,
+    [2] = 15,
+    [3] = 20,
+    [4] = 25,
+}
+Constants.MAZE_SIZE_INCREMENT = 5   -- 스테이지 5+부터 매 스테이지 +5
+Constants.MAZE_SIZE_MAX = 40
+Constants.MAX_STAGE = 10
+
+-- 플레이어 속도
+Constants.PLAYER_BASE_SPEED = 16   -- Roblox 기본값 (studs/s)
+Constants.CARROT_SPEED = 24        -- 당근 효과 시 속도
+Constants.CARROT_DURATION = 3      -- 당근 효과 지속시간 (초)
+Constants.POOP_DURATION   = 15     -- 💩 바닥 표시 지속시간 (초)
+
+-- 추가 헌터
+Constants.HUNTER_EXTRA_INTERVAL = 60  -- 추가 헌터 스폰 주기 (초)
+
+-- 사냥꾼 속도 (난이도별)
+Constants.HUNTER = {
+    Easy   = { baseSpeed = 8,  increment = 0, maxSpeed = 8  },
+    Normal = { baseSpeed = 10, increment = 1, maxSpeed = 16 },
+    Hard   = { baseSpeed = 13, increment = 2, maxSpeed = 22 },
+}
+Constants.HUNTER_SIGHT_RANGE = 999 -- (AI 루프 내부에서 난이도별 오버라이드)
+Constants.TRAP_STUN_DURATION = 3   -- 함정 스턴 지속시간 (초)
+Constants.TRAP_EXCLUSION_RADIUS = 3 -- 출구 근처 함정 설치 불가 반경 (studs)
+
+-- 아이템 스폰 수량
+Constants.CARROT_COUNT = 3
+Constants.TRAP_COUNT = 2
+
+-- 미로 렌더링
+Constants.WALL_SIZE = Vector3.new(22, 10, 22)    -- 통로 유효 폭 ~16 studs (벽두께 6 포함)
+Constants.FLOOR_SIZE = Vector3.new(22, 0.5, 22)  -- 바닥 파트 크기
+Constants.WALL_THICKNESS = 6                     -- 벽 두께 (3배)
+
+-- 색상 팔레트
+Constants.COLORS = {
+    Wall   = Color3.fromRGB(90,  65,  45),   -- 흙벽 (짙은 갈색)
+    Floor  = Color3.fromRGB(120, 90,  55),   -- 흙바닥 (중간 갈색)
+    Exit   = Color3.fromRGB(178, 235, 201),  -- 민트 (출구)
+    Carrot = Color3.fromRGB(255, 179, 102),  -- 주황 (당근)
+    Trap   = Color3.fromRGB(255, 204, 213),  -- 연분홍 (함정)
+    Hunter = Color3.fromRGB(30,  20,  20),   -- 거의 검정 (사냥꾼)
+}
+
+-- 게임 인원
+Constants.MIN_PLAYERS = 2
+Constants.MAX_PLAYERS = 8
+
+-- 결과 표시 대기 시간 (초)
+Constants.RESULT_DISPLAY_DURATION = 3
+
+return Constants
+]]></string>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+  <Item class="ServerScriptService" referent="14">
+    <Properties>
+      <string name="Name">ServerScriptService</string>
+    </Properties>
+    <Item class="Script" referent="15">
+      <Properties>
+        <string name="Name">GameManager</string>
+        <token name="RunContext">0</token>
+        <string name="Source"><![CDATA[-- ServerScriptService/GameManager
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Constants = require(ReplicatedStorage.Shared.Constants)
+local MazeModule = require(game.ServerScriptService.Modules.MazeModule)
+local PlayerManager = require(game.ServerScriptService.Modules.PlayerManager)
+local HunterAI = require(game.ServerScriptService.Modules.HunterAI)
+local ItemManager = require(game.ServerScriptService.Modules.ItemManager)
+
+local Events = ReplicatedStorage.Events
+
+local readyPlayers = {}
+
+-- 색상 선택 이벤트
+Events.ColorSelected.OnServerEvent:Connect(function(player, color)
+    if typeof(color) == "Color3" then
+        PlayerManager.setColor(player, color)
+    end
+end)
+
+-- 당근 효과 선택 이벤트 (클라이언트에서 G/H 키로 발동)
+Events.CarrotChoice.OnServerEvent:Connect(function(player, choice)
+    if not PlayerManager.hasPendingCarrot(player) then return end
+    if PlayerManager.getState(player) ~= "alive" then
+        PlayerManager.setPendingCarrot(player, false)
+        return
+    end
+    if choice == "poop" then
+        PlayerManager.applyPoop(player)
+        Events.UpdateHUD:FireClient(player, { type = "carrotUsedPoop" })
+    elseif choice == "speed" then
+        PlayerManager.applySpeedBoost(player)
+        Events.UpdateHUD:FireClient(player, { type = "carrotUsedSpeed" })
+    end
+end)
+
+-- 캐릭터 타입 선택 이벤트
+Events.CharacterSelected.OnServerEvent:Connect(function(player, charType)
+    local valid = { Dad = true, Mom = true, Son = true, Daughter = true }
+    if valid[charType] then
+        PlayerManager.setCharType(player, charType)
+    end
+end)
+
+-- 준비 완료 이벤트
+Events.ReadyUp.OnServerEvent:Connect(function(player)
+    readyPlayers[player] = true
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+    readyPlayers[player] = nil
+end)
+
+local mazeFolder = Instance.new("Folder")
+mazeFolder.Name = "Maze"
+mazeFolder.Parent = workspace
+
+local gameDifficulty = "Normal"
+
+local function makeRNG(seed)
+    local s = seed
+    return function()
+        s = (s * 1664525 + 1013904223) % (2^32)
+        return s / (2^32)
+    end
+end
+
+local function broadcastHUD(data)
+    for _, player in ipairs(Players:GetPlayers()) do
+        Events.UpdateHUD:FireClient(player, data)
+    end
+end
+
+-- 단일 스테이지 실행
+local function runStage(stage, playerList)
+    local size = MazeModule.getSizeForStage(stage)
+    local seed = math.random(1, 999999)
+    local rng  = makeRNG(seed)
+    local ws   = Constants.WALL_SIZE.X
+
+    -- 1. 미로 생성
+    MazeModule.clear(mazeFolder)
+    local grid     = MazeModule.generate(size, seed)
+    local mazeInfo = MazeModule.render(grid, size, mazeFolder)
+
+    -- 2. 플레이어 상태 초기화
+    PlayerManager.init(playerList)
+
+    -- 3. 스폰 위치 이동
+    task.wait(1)
+    for i, player in ipairs(playerList) do
+        local char = player.Character or player.CharacterAdded:Wait()
+        local hrp  = char:FindFirstChild("HumanoidRootPart")
+        if not hrp then
+            local deadline = tick() + 3
+            repeat task.wait(0.05) until char:FindFirstChild("HumanoidRootPart") or tick() > deadline
+            hrp = char:FindFirstChild("HumanoidRootPart")
+        end
+        if hrp then
+            local offset = Vector3.new((i - 1) * 5, 0, 0)
+            local target = CFrame.new(mazeInfo.spawnPosition + offset)
+            hrp.CFrame = target
+            task.wait(0.1)
+            hrp.CFrame = target
+        end
+        task.wait(0.1)
+    end
+
+    -- 4. 리본 + 캐릭터 타입 악세서리 적용
+    for _, player in ipairs(playerList) do
+        PlayerManager.applyColor(player)
+        PlayerManager.applyCharType(player)
+    end
+
+    -- 5. 사냥꾼 스폰
+    local centerX   = math.floor(size / 2) * ws + ws / 2
+    local centerZ   = math.floor(size / 2) * ws + ws / 2
+    local hunterSpawn = Vector3.new(centerX, 5, centerZ)
+    HunterAI.spawn(hunterSpawn, gameDifficulty)
+    HunterAI.updateSpeedForStage(stage)
+
+    -- 6. 순찰 포인트
+    HunterAI.setPatrolPoints({
+        Vector3.new(ws, 5, ws),
+        Vector3.new((size - 1) * ws, 5, ws),
+        Vector3.new((size - 1) * ws, 5, (size - 1) * ws),
+        Vector3.new(ws, 5, (size - 1) * ws),
+    })
+
+    -- 7. 아이템 스폰
+    ItemManager.spawnItems(mazeFolder, rng)
+
+    -- 8. 출구 Touched 감지
+    local exitDebounce = {}
+    local escapeOrder  = {}
+    local exitConn = mazeInfo.exitPart.Touched:Connect(function(hit)
+        local char   = hit.Parent
+        local player = Players:GetPlayerFromCharacter(char)
+        if not player then return end
+        if exitDebounce[player] then return end
+        if PlayerManager.getState(player) == "alive" then
+            exitDebounce[player] = true
+            table.insert(escapeOrder, player)
+            PlayerManager.setEscaped(player)
+            Events.UpdateHUD:FireClient(player, {
+                type = "escapedSelf",
+                rank = #escapeOrder,
+            })
+            broadcastHUD({
+                type       = "playerEscaped",
+                rank       = #escapeOrder,
+                playerName = player.Name,
+                survivors  = PlayerManager.getSurvivorCount(),
+            })
+        end
+    end)
+
+    -- 9. 사냥꾼 충돌 감지
+    HunterAI.onTouched(function(player)
+        PlayerManager.eliminate(player)
+        broadcastHUD({
+            type       = "playerCaught",
+            playerName = player.Name,
+            survivors  = PlayerManager.getAliveCount(),
+        })
+    end)
+
+    -- 10. 함정 설치 이벤트
+    local trapConn = Events.TrapPlaced.OnServerEvent:Connect(function(player)
+        ItemManager.placeTrap(player, mazeInfo.exitPosition, mazeFolder)
+    end)
+
+    -- 11. 스테이지 시작 알림 (타이머 없음)
+    Events.StageStarted:FireAllClients({
+        stage      = stage,
+        timer      = 0,  -- 제한 시간 없음
+        survivors  = #playerList,
+        difficulty = gameDifficulty,
+    })
+
+    -- 12. AI 시작
+    HunterAI.startAI()
+
+    -- 13. 1분마다 추가 헌터 스폰 (병렬 루프)
+    local stageRunning   = true
+    local extraCount     = 0
+    local extraHunterTask = task.spawn(function()
+        local elapsed = 0
+        while stageRunning do
+            task.wait(1)
+            elapsed += 1
+            if elapsed > 0 and elapsed % Constants.HUNTER_EXTRA_INTERVAL == 0 then
+                extraCount += 1
+                -- 미로 내 랜덤 위치 (벽이 아닌 통로 근방)
+                local rx = math.random(1, size - 1) * ws + ws / 2
+                local rz = math.random(1, size - 1) * ws + ws / 2
+                HunterAI.spawnExtra(Vector3.new(rx, 5, rz))
+                broadcastHUD({type = "extraHunterSpawned", count = extraCount})
+            end
+        end
+    end)
+
+    -- 14. 탈출 또는 전원 탈락까지 대기 (제한 시간 없음)
+    while true do
+        task.wait(1)
+        if PlayerManager.getAliveCount() == 0 then break end
+        if PlayerManager.getEscapedCount() > 0  then break end
+    end
+    stageRunning = false
+
+    -- 15. 정리
+    exitConn:Disconnect()
+    trapConn:Disconnect()
+    HunterAI.stop()
+    ItemManager.clear(mazeFolder)
+
+    -- 16. 랭킹 생성
+    local rankings   = {}
+    local escapedSet = {}
+    local totalPlayers = #playerList
+
+    for rank, p in ipairs(escapeOrder) do
+        local pts = math.max(totalPlayers - rank + 1, 1)
+        table.insert(rankings, {
+            name    = p.Name,
+            rank    = rank,
+            points  = pts,
+            escaped = true,
+        })
+        escapedSet[p] = true
+    end
+
+    for _, p in ipairs(playerList) do
+        if not escapedSet[p] then
+            table.insert(rankings, {
+                name    = p.Name,
+                rank    = #escapeOrder + 1,
+                points  = 0,
+                escaped = false,
+            })
+        end
+    end
+
+    local anyEscaped = (#escapeOrder > 0)
+    return rankings, anyEscaped
+end
+
+-- 모든 플레이어가 준비 완료했는지 확인
+local function allReady(playerList)
+    for _, p in ipairs(playerList) do
+        if not readyPlayers[p] then return false end
+    end
+    return true
+end
+
+-- 최소 인원(MIN_PLAYERS) 이상이 준비했는지 확인
+local function enoughReady(playerList)
+    local count = 0
+    for _, p in ipairs(playerList) do
+        if readyPlayers[p] then count += 1 end
+    end
+    return count >= Constants.MIN_PLAYERS
+end
+
+local function startGame(playerList, difficulty)
+    gameDifficulty = difficulty or "Normal"
+    task.wait(Constants.RESULT_DISPLAY_DURATION)
+
+    local stageNum = 1
+
+    while true do
+        local rankings, anyEscaped = runStage(stageNum, playerList)
+
+        Events.GameOver:FireAllClients({
+            rankings   = rankings,
+            allEscaped = anyEscaped,
+            stage      = stageNum,
+        })
+
+        readyPlayers = {}
+        local waited = 0
+        while waited < 30 do
+            task.wait(1)
+            waited += 1
+            local current = Players:GetPlayers()
+            -- 전원 준비 시 즉시 시작, MIN_PLAYERS 이상 준비 시 최대 30초 대기
+            if #current >= Constants.MIN_PLAYERS and allReady(current) then break end
+            if #current >= Constants.MIN_PLAYERS and enoughReady(current) and waited >= 10 then break end
+        end
+
+        playerList = Players:GetPlayers()
+        if #playerList < Constants.MIN_PLAYERS then break end
+
+        readyPlayers = {}
+
+        if anyEscaped then
+            stageNum += 1
+        end
+
+        local nextLabel = anyEscaped
+            and ("스테이지 " .. stageNum .. " 시작!")
+            or  "재도전!"
+        for i = 3, 1, -1 do
+            broadcastHUD({ type = "stageCountdown", count = i, label = nextLabel })
+            task.wait(1)
+        end
+        broadcastHUD({ type = "stageCountdown", count = 0, label = nextLabel })
+        task.wait(0.3)
+    end
+end
+
+local function lobbyWait()
+    while true do
+        local playerList = Players:GetPlayers()
+        if #playerList >= Constants.MIN_PLAYERS then
+            local elapsed = 0
+            while elapsed < 30 do
+                task.wait(1)
+                elapsed += 1
+                local current = Players:GetPlayers()
+                if #current >= Constants.MIN_PLAYERS and allReady(current) then break end
+                if #current >= Constants.MIN_PLAYERS and enoughReady(current) and elapsed >= 10 then break end
+            end
+
+            local currentPlayers = Players:GetPlayers()
+            if #currentPlayers >= Constants.MIN_PLAYERS then
+                for i = 5, 1, -1 do
+                    for _, p in ipairs(currentPlayers) do
+                        Events.UpdateHUD:FireClient(p, {type = "lobbyCountdown", count = i})
+                    end
+                    task.wait(1)
+                end
+                readyPlayers = {}
+                startGame(currentPlayers, "Normal")
+                readyPlayers = {}
+                task.wait(2)
+            end
+        end
+        task.wait(2)
+    end
+end
+
+task.spawn(lobbyWait)
+]]></string>
+      </Properties>
+    </Item>
+    <Item class="Folder" referent="16">
+      <Properties>
+        <string name="Name">Modules</string>
+      </Properties>
+      <Item class="ModuleScript" referent="17">
+        <Properties>
+          <string name="Name">HunterAI</string>
+          <string name="Source"><![CDATA[-- ServerScriptService/Modules/HunterAI
+local HunterAI = {}
+
+local PathfindingService = game:GetService("PathfindingService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Constants = require(ReplicatedStorage.Shared.Constants)
+
+local hunterModel = nil
+local difficulty = "Normal"
+local isStunned = false
+local aiThread = nil     -- task.spawn 반환 스레드
+local currentStage = 1   -- stun 회복 후 속도 복원에 사용
+local lastDetected = nil -- 현재 추적 중인 플레이어 (BGM 이벤트용)
+
+-- 추가 헌터 목록 (1분마다 스폰)
+local extraHunters = {}          -- {model, thread}
+local storedTouchCallback = nil  -- onTouched 에서 받은 콜백 저장
+
+-- ── 공통 파트 생성 헬퍼 ──────────────────────────────────────────────────
+local function makePart(model, name, sz, color, collide)
+    local p = Instance.new("Part")
+    p.Name = name
+    p.Size = sz
+    p.Color = color
+    p.Material = Enum.Material.SmoothPlastic
+    p.Anchored = false
+    p.CanCollide = collide or false
+    p.CastShadow = true
+    p.Parent = model
+    return p
+end
+
+local function weldPart(a, b, offset)
+    b.CFrame = a.CFrame * CFrame.new(offset)
+    local w = Instance.new("WeldConstraint")
+    w.Part0 = a
+    w.Part1 = b
+    w.Parent = a
+end
+
+-- ── 터치 감지 공통 설정 ────────────────────────────────────────────────────
+local function setupTouchDetection(model, callback)
+    if not model then return end
+    local root = model.PrimaryPart
+    if not root then return end
+
+    local debounce = {}
+    root.Touched:Connect(function(hit)
+        local char = hit.Parent
+        if not char then return end
+        local player = game.Players:GetPlayerFromCharacter(char)
+        if not player then return end
+        if debounce[player] then return end
+
+        local PlayerManager = require(game.ServerScriptService.Modules.PlayerManager)
+        if PlayerManager.getState(player) == "alive" then
+            debounce[player] = true
+            callback(player)
+            task.delay(0.5, function()
+                debounce[player] = nil
+            end)
+        end
+    end)
+end
+
+-- ── 가장 가까운 생존 플레이어 ──────────────────────────────────────────────
+local function getNearestAlivePlayer(fromModel)
+    local PlayerManager = require(game.ServerScriptService.Modules.PlayerManager)
+    local alivePlayers = PlayerManager.getAlivePlayers()
+    if #alivePlayers == 0 then return nil, math.huge end
+
+    local srcModel = fromModel or hunterModel
+    local root = srcModel and srcModel.PrimaryPart
+    if not root then return nil, math.huge end
+
+    local nearest, minDist = nil, math.huge
+    for _, player in ipairs(alivePlayers) do
+        local char = player.Character
+        if char then
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local dist = (hrp.Position - root.Position).Magnitude
+                if dist < minDist then
+                    minDist = dist
+                    nearest = player
+                end
+            end
+        end
+    end
+    return nearest, minDist
+end
+
+-- ── 메인 헌터 생성 ────────────────────────────────────────────────────────
+function HunterAI.spawn(spawnPosition, diff)
+    difficulty = diff or "Normal"
+    currentStage = 1
+
+    if hunterModel then
+        hunterModel:Destroy()
+        hunterModel = nil
+    end
+
+    local dark  = Constants.COLORS.Hunter
+    local red   = Color3.fromRGB(220, 40, 40)
+
+    local model = Instance.new("Model")
+    model.Name = "Hunter"
+
+    local hrp = makePart(model, "HumanoidRootPart", Vector3.new(2.5, 3, 1.5), dark, true)
+    hrp.CFrame = CFrame.new(spawnPosition)
+    model.PrimaryPart = hrp
+
+    local head = makePart(model, "Head", Vector3.new(2.2, 2.2, 2.2), dark)
+    weldPart(hrp, head, Vector3.new(0, 2.6, 0))
+
+    local eyeL = makePart(model, "EyeL", Vector3.new(0.5, 0.5, 0.15), red)
+    weldPart(head, eyeL, Vector3.new(-0.55, 0.15, -1.1))
+    local eyeR = makePart(model, "EyeR", Vector3.new(0.5, 0.5, 0.15), red)
+    weldPart(head, eyeR, Vector3.new( 0.55, 0.15, -1.1))
+
+    local armL = makePart(model, "ArmL", Vector3.new(0.9, 2.8, 0.9), dark)
+    weldPart(hrp, armL, Vector3.new(-1.7, 0.1, 0))
+    local armR = makePart(model, "ArmR", Vector3.new(0.9, 2.8, 0.9), dark)
+    weldPart(hrp, armR, Vector3.new( 1.7, 0.1, 0))
+
+    local legL = makePart(model, "LegL", Vector3.new(1, 2.8, 1), dark)
+    weldPart(hrp, legL, Vector3.new(-0.75, -2.9, 0))
+    local legR = makePart(model, "LegR", Vector3.new(1, 2.8, 1), dark)
+    weldPart(hrp, legR, Vector3.new( 0.75, -2.9, 0))
+
+    local humanoid = Instance.new("Humanoid")
+    humanoid.WalkSpeed = Constants.HUNTER[difficulty].baseSpeed
+    humanoid.MaxHealth = math.huge
+    humanoid.Health = math.huge
+    humanoid.Parent = model
+
+    model.Parent = workspace
+    hunterModel = model
+    isStunned = false
+    return model
+end
+
+-- ── 추가 헌터 생성 (1분마다 스폰, 단순 추적 AI) ─────────────────────────
+function HunterAI.spawnExtra(position)
+    -- 심홍색(진한 빨강)으로 메인 헌터와 구별
+    local crimson = Color3.fromRGB(120, 10, 10)
+    local orange  = Color3.fromRGB(255, 80, 0)
+
+    local model = Instance.new("Model")
+    model.Name = "HunterExtra"
+
+    local hrp = makePart(model, "HumanoidRootPart", Vector3.new(2.5, 3, 1.5), crimson, true)
+    hrp.CFrame = CFrame.new(position)
+    model.PrimaryPart = hrp
+
+    local head = makePart(model, "Head", Vector3.new(2.2, 2.2, 2.2), crimson)
+    weldPart(hrp, head, Vector3.new(0, 2.6, 0))
+
+    -- 주황 눈 (메인 헌터의 빨간 눈과 구별)
+    local eyeL = makePart(model, "EyeL", Vector3.new(0.5, 0.5, 0.15), orange)
+    weldPart(head, eyeL, Vector3.new(-0.55, 0.15, -1.1))
+    local eyeR = makePart(model, "EyeR", Vector3.new(0.5, 0.5, 0.15), orange)
+    weldPart(head, eyeR, Vector3.new( 0.55, 0.15, -1.1))
+
+    local armL = makePart(model, "ArmL", Vector3.new(0.9, 2.8, 0.9), crimson)
+    weldPart(hrp, armL, Vector3.new(-1.7, 0.1, 0))
+    local armR = makePart(model, "ArmR", Vector3.new(0.9, 2.8, 0.9), crimson)
+    weldPart(hrp, armR, Vector3.new( 1.7, 0.1, 0))
+
+    local legL = makePart(model, "LegL", Vector3.new(1, 2.8, 1), crimson)
+    weldPart(hrp, legL, Vector3.new(-0.75, -2.9, 0))
+    local legR = makePart(model, "LegR", Vector3.new(1, 2.8, 1), crimson)
+    weldPart(hrp, legR, Vector3.new( 0.75, -2.9, 0))
+
+    -- 머리 위 "⚠" 표시
+    local bb = Instance.new("BillboardGui")
+    bb.Size = UDim2.new(0, 60, 0, 40)
+    bb.StudsOffset = Vector3.new(0, 3.5, 0)
+    bb.AlwaysOnTop = false
+    bb.Parent = head
+    local lbl = Instance.new("TextLabel")
+    lbl.Text = "⚠"
+    lbl.TextScaled = true
+    lbl.BackgroundTransparency = 1
+    lbl.Size = UDim2.new(1, 0, 1, 0)
+    lbl.TextColor3 = Color3.fromRGB(255, 200, 0)
+    lbl.Parent = bb
+
+    local humanoid = Instance.new("Humanoid")
+    -- 현재 스테이지 속도와 동일하게 설정
+    local config = Constants.HUNTER[difficulty]
+    local spd = math.min(config.baseSpeed + config.increment * (currentStage - 1), config.maxSpeed)
+    humanoid.WalkSpeed = spd
+    humanoid.MaxHealth = math.huge
+    humanoid.Health = math.huge
+    humanoid.Parent = model
+
+    model.Parent = workspace
+
+    -- 터치 감지 (저장된 콜백 사용)
+    if storedTouchCallback then
+        setupTouchDetection(model, storedTouchCallback)
+    end
+
+    -- 단순 추적 AI (PathFinding 없이 직선 이동 - 공격적이지만 멍청함)
+    local thread = task.spawn(function()
+        while model and model.Parent do
+            local nearest, _ = getNearestAlivePlayer(model)
+            if nearest then
+                local char = nearest.Character
+                local hrp2 = char and char:FindFirstChild("HumanoidRootPart")
+                local hum = model:FindFirstChild("Humanoid")
+                if hrp2 and hum then
+                    hum:MoveTo(hrp2.Position)
+                end
+            end
+            task.wait(0.35)
+        end
+    end)
+
+    table.insert(extraHunters, {model = model, thread = thread})
+    return model
+end
+
+-- ── 속도 갱신 ─────────────────────────────────────────────────────────────
+function HunterAI.updateSpeedForStage(stage)
+    currentStage = stage
+    if not hunterModel then return end
+    local config = Constants.HUNTER[difficulty]
+    local speed = math.min(
+        config.baseSpeed + config.increment * (stage - 1),
+        config.maxSpeed
+    )
+    local humanoid = hunterModel:FindFirstChild("Humanoid")
+    if humanoid then
+        humanoid.WalkSpeed = speed
+    end
+end
+
+function HunterAI.getCurrentStageSpeed(stage)
+    local config = Constants.HUNTER[difficulty]
+    return math.min(config.baseSpeed + config.increment * (stage - 1), config.maxSpeed)
+end
+
+-- ── 스턴 시각 효과 ────────────────────────────────────────────────────────
+local function applyStunVisual()
+    if not hunterModel then return end
+    local stunColor  = Color3.fromRGB(255, 220, 50)
+    local eyeColor   = Color3.fromRGB(255, 255, 255)
+
+    for _, part in ipairs(hunterModel:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part:SetAttribute("OrigColor", tostring(part.Color.R)..","..tostring(part.Color.G)..","..tostring(part.Color.B))
+            if part.Name == "EyeL" or part.Name == "EyeR" then
+                part.Color = eyeColor
+            else
+                part.Color = stunColor
+            end
+        end
+    end
+
+    local head = hunterModel:FindFirstChild("Head")
+    if head then
+        local bb = Instance.new("BillboardGui")
+        bb.Name = "StunBillboard"
+        bb.Size = UDim2.new(0, 80, 0, 80)
+        bb.StudsOffset = Vector3.new(0, 3, 0)
+        bb.AlwaysOnTop = true
+        bb.Parent = head
+
+        local label = Instance.new("TextLabel")
+        label.Text = "💫"
+        label.TextScaled = true
+        label.BackgroundTransparency = 1
+        label.Size = UDim2.new(1, 0, 1, 0)
+        label.Parent = bb
+    end
+end
+
+local function removeStunVisual()
+    if not hunterModel then return end
+    local dark = Constants.COLORS.Hunter
+    local red  = Color3.fromRGB(220, 40, 40)
+
+    for _, part in ipairs(hunterModel:GetDescendants()) do
+        if part:IsA("BasePart") then
+            if part.Name == "EyeL" or part.Name == "EyeR" then
+                part.Color = red
+            else
+                part.Color = dark
+            end
+        end
+    end
+
+    local head = hunterModel:FindFirstChild("Head")
+    if head then
+        local bb = head:FindFirstChild("StunBillboard")
+        if bb then bb:Destroy() end
+    end
+end
+
+function HunterAI.stun()
+    if not hunterModel or isStunned then return end
+    isStunned = true
+    local humanoid = hunterModel:FindFirstChild("Humanoid")
+    if humanoid then humanoid.WalkSpeed = 0 end
+
+    applyStunVisual()
+
+    task.delay(Constants.TRAP_STUN_DURATION, function()
+        isStunned = false
+        removeStunVisual()
+        HunterAI.updateSpeedForStage(currentStage)
+    end)
+end
+
+-- ── 경로 추적 ─────────────────────────────────────────────────────────────
+local function followPath(targetPos, maxWP)
+    if not hunterModel or isStunned then return end
+    local humanoid = hunterModel:FindFirstChild("Humanoid")
+    local root     = hunterModel.PrimaryPart
+    if not humanoid or not root then return end
+
+    local path = PathfindingService:CreatePath({
+        AgentHeight   = 5,
+        AgentRadius   = 1.5,
+        AgentCanJump  = false,
+        Costs         = { Water = 20 },
+    })
+    local ok = pcall(function()
+        path:ComputeAsync(root.Position, targetPos)
+    end)
+    if not ok then
+        humanoid:MoveTo(targetPos)
+        task.wait(0.3)
+        return
+    end
+
+    if path.Status == Enum.PathStatus.Success then
+        local wps = path:GetWaypoints()
+        local count = 0
+        for _, wp in ipairs(wps) do
+            if isStunned or not hunterModel then return end
+            humanoid:MoveTo(wp.Position)
+            local moved, conn = false, nil
+            conn = humanoid.MoveToFinished:Connect(function()
+                moved = true
+                conn:Disconnect()
+            end)
+            local t = 0
+            while not moved and t < 1.5 do
+                task.wait(0.1)
+                t += 0.1
+            end
+            if conn then pcall(function() conn:Disconnect() end) end
+            count += 1
+            if count >= maxWP then break end
+        end
+    else
+        humanoid:MoveTo(targetPos)
+        task.wait(0.4)
+    end
+end
+
+-- ── 순찰 포인트 ────────────────────────────────────────────────────────────
+local patrolPoints = {}
+local patrolIndex  = 1
+
+function HunterAI.setPatrolPoints(points)
+    patrolPoints = points
+    patrolIndex  = 1
+end
+
+-- ── 메인 AI 루프 ──────────────────────────────────────────────────────────
+function HunterAI.startAI()
+    if aiThread then
+        pcall(task.cancel, aiThread)
+        aiThread = nil
+    end
+
+    local sightRange, maxWP, patrolWait
+    if difficulty == "Easy" then
+        sightRange  = 40
+        maxWP       = 2
+        patrolWait  = 0.8
+    elseif difficulty == "Normal" then
+        sightRange  = 999
+        maxWP       = 3
+        patrolWait  = 0.5
+    else  -- Hard
+        sightRange  = 999
+        maxWP       = 5
+        patrolWait  = 0.2
+    end
+
+    local Events = ReplicatedStorage.Events
+
+    local function updateDetected(newTarget)
+        if newTarget == lastDetected then return end
+        if lastDetected then
+            pcall(function()
+                Events.HunterAlert:FireClient(lastDetected, false)
+            end)
+        end
+        if newTarget then
+            pcall(function()
+                Events.HunterAlert:FireClient(newTarget, true)
+            end)
+        end
+        lastDetected = newTarget
+    end
+
+    aiThread = task.spawn(function()
+        while hunterModel and hunterModel.Parent do
+            if isStunned then
+                task.wait(0.3)
+            else
+                local nearest, dist = getNearestAlivePlayer()
+                if nearest and dist <= sightRange then
+                    updateDetected(nearest)
+                    local char = nearest.Character
+                    local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+                    if hrp then
+                        followPath(hrp.Position, maxWP)
+                    else
+                        task.wait(0.2)
+                    end
+                else
+                    updateDetected(nil)
+                    if #patrolPoints > 0 then
+                        local pt = patrolPoints[patrolIndex]
+                        followPath(pt, 6)
+                        patrolIndex = (patrolIndex % #patrolPoints) + 1
+                    else
+                        local root = hunterModel.PrimaryPart
+                        if root then
+                            local offset = Vector3.new(
+                                math.random(-20, 20), 0, math.random(-20, 20)
+                            )
+                            followPath(root.Position + offset, 4)
+                        else
+                            task.wait(0.5)
+                        end
+                    end
+                    task.wait(patrolWait)
+                end
+            end
+        end
+    end)
+end
+
+-- ── AI 중지 + 헌터 전체 제거 ─────────────────────────────────────────────
+function HunterAI.stop()
+    if aiThread then
+        pcall(task.cancel, aiThread)
+        aiThread = nil
+    end
+    -- 추적 대상에게 미발견 알림
+    if lastDetected then
+        pcall(function()
+            ReplicatedStorage.Events.HunterAlert:FireClient(lastDetected, false)
+        end)
+        lastDetected = nil
+    end
+    if hunterModel then
+        hunterModel:Destroy()
+        hunterModel = nil
+    end
+    -- 추가 헌터 전체 정리
+    for _, extra in ipairs(extraHunters) do
+        if extra.thread then pcall(task.cancel, extra.thread) end
+        if extra.model and extra.model.Parent then
+            extra.model:Destroy()
+        end
+    end
+    extraHunters = {}
+    isStunned = false
+end
+
+-- ── 터치 콜백 등록 ────────────────────────────────────────────────────────
+function HunterAI.onTouched(callback)
+    storedTouchCallback = callback
+    setupTouchDetection(hunterModel, callback)
+end
+
+return HunterAI
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="18">
+        <Properties>
+          <string name="Name">ItemManager</string>
+          <string name="Source"><![CDATA[-- ServerScriptService/Modules/ItemManager
+local ItemManager = {}
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Constants = require(ReplicatedStorage.Shared.Constants)
+
+local activeItems = {}  -- {part=Part, type=string} のリスト
+
+-- 미로 바닥 파트에서 랜덤 위치 선택
+-- excludePositions: 이미 사용된 위치 목록 (간단히 앞에서 뽑은 위치)
+local function getRandomFloorPositions(mazeFolder, count, rng)
+    local floors = {}
+    for _, part in ipairs(mazeFolder:GetChildren()) do
+        if part:IsA("BasePart")
+            and part.Name ~= "Exit"
+            and part.Name ~= "Spawn"
+            and part.Size.Y <= 1  -- 바닥 판별: 두께 1 이하
+        then
+            table.insert(floors, part.Position + Vector3.new(0, 2, 0))
+        end
+    end
+
+    -- Fisher-Yates 셔플
+    for i = #floors, 2, -1 do
+        local j = math.floor(rng() * i) + 1
+        floors[i], floors[j] = floors[j], floors[i]
+    end
+
+    local result = {}
+    for i = 1, math.min(count, #floors) do
+        result[i] = floors[i]
+    end
+    return result
+end
+
+-- 아이템 파트 생성
+local function spawnItem(position, itemType, mazeFolder)
+    -- 당근: 투명 파트 + 🥕 이모지 빌보드
+    if itemType == "Carrot" then
+        local part = Instance.new("Part")
+        part.Name = "Carrot"
+        part.Size = Vector3.new(2, 2, 2)
+        part.Anchored = true
+        part.CanCollide = false
+        part.CastShadow = false
+        part.Transparency = 1
+        part.Position = position
+        part.Parent = mazeFolder
+
+        local billboard = Instance.new("BillboardGui")
+        billboard.Size = UDim2.new(0, 80, 0, 80)
+        billboard.StudsOffset = Vector3.new(0, 1, 0)
+        billboard.AlwaysOnTop = false
+        billboard.Parent = part
+        local lbl = Instance.new("TextLabel")
+        lbl.Text = "🥕"
+        lbl.TextScaled = true
+        lbl.BackgroundTransparency = 1
+        lbl.Size = UDim2.new(1, 0, 1, 0)
+        lbl.Parent = billboard
+
+        table.insert(activeItems, {part = part, type = "Carrot"})
+        return part
+    end
+
+    -- Trap (pickup) — 투명 감지 박스 + 진흙 시각 파트
+    -- (납작한 실린더는 Touched 감지 불안정 → 별도 hitbox 사용)
+    local container = Instance.new("Model")
+    container.Name   = "Trap"
+    container.Parent = mazeFolder
+
+    -- 투명 감지 박스 (플레이어 발에 닿도록 충분한 높이)
+    local hitbox = Instance.new("Part")
+    hitbox.Name        = "TrapHitbox"
+    hitbox.Size        = Vector3.new(3.5, 3.5, 3.5)
+    hitbox.Position    = position
+    hitbox.Transparency = 1
+    hitbox.Anchored    = true
+    hitbox.CanCollide  = false
+    hitbox.CastShadow  = false
+    hitbox.Parent      = container
+
+    -- 진흙 웅덩이 시각 파트 (바닥에 납작하게)
+    local visual = Instance.new("Part")
+    visual.Name        = "TrapMud"
+    visual.Size        = Vector3.new(4, 0.3, 4)
+    visual.Position    = Vector3.new(position.X, position.Y - 1.6, position.Z)
+    visual.Color       = Color3.fromRGB(72, 44, 14)
+    visual.Material    = Enum.Material.SmoothPlastic
+    visual.Transparency = 0.1
+    visual.Anchored    = true
+    visual.CanCollide  = false
+    visual.CastShadow  = false
+    visual.Parent      = container
+
+    -- 이모지 빌보드
+    local bb = Instance.new("BillboardGui")
+    bb.Size        = UDim2.new(0, 60, 0, 48)
+    bb.StudsOffset = Vector3.new(0, 2.5, 0)
+    bb.AlwaysOnTop = false
+    bb.Parent      = hitbox
+    local lbl = Instance.new("TextLabel")
+    lbl.Text                   = "🪤"
+    lbl.TextScaled             = true
+    lbl.BackgroundTransparency = 1
+    lbl.Size                   = UDim2.new(1, 0, 1, 0)
+    lbl.Parent                 = bb
+
+    table.insert(activeItems, {part = container, type = itemType})
+    return hitbox   -- Touched 연결용으로 hitbox 반환
+end
+
+-- 스테이지 시작 시 아이템 스폰
+-- rng: makeRNG(seed) 반환값 (시드 기반 재현 가능한 위치)
+function ItemManager.spawnItems(mazeFolder, rng)
+    activeItems = {}
+
+    local carrotPositions = getRandomFloorPositions(mazeFolder, Constants.CARROT_COUNT, rng)
+    local trapPositions = getRandomFloorPositions(mazeFolder, Constants.TRAP_COUNT, rng)
+
+    -- 당근 스폰 및 획득 감지
+    for _, pos in ipairs(carrotPositions) do
+        local part = spawnItem(pos, "Carrot", mazeFolder)
+        local debounce = false
+        part.Touched:Connect(function(hit)
+            if debounce then return end
+            if not part.Parent then return end
+            local char = hit.Parent
+            local player = game.Players:GetPlayerFromCharacter(char)
+            if not player then return end
+            local PlayerManager = require(game.ServerScriptService.Modules.PlayerManager)
+            if PlayerManager.getState(player) == "alive"
+                and not PlayerManager.hasPendingCarrot(player) then
+                debounce = true
+                part:Destroy()
+                PlayerManager.setPendingCarrot(player, true)
+                game.ReplicatedStorage.Events.UpdateHUD:FireClient(player, {
+                    type = "carrotPickup"
+                })
+            end
+        end)
+    end
+
+    -- 함정 아이템 스폰 및 획득 감지
+    -- spawnItem("Trap") 은 hitbox(Part) 를 반환, parent 는 container(Model)
+    for _, pos in ipairs(trapPositions) do
+        local hitbox = spawnItem(pos, "Trap", mazeFolder)
+        local debounce = false
+        hitbox.Touched:Connect(function(hit)
+            if debounce then return end
+            local container = hitbox.Parent
+            if not container then return end
+            local char = hit.Parent
+            local player = game.Players:GetPlayerFromCharacter(char)
+            if not player then return end
+            local PlayerManager = require(game.ServerScriptService.Modules.PlayerManager)
+            if PlayerManager.getState(player) == "alive" then
+                debounce = true
+                container:Destroy()   -- Model 전체 제거
+                PlayerManager.giveTrap(player)
+                game.ReplicatedStorage.Events.UpdateHUD:FireClient(player, {
+                    type  = "trapPickup",
+                    count = PlayerManager.getTrapCount(player),
+                })
+            end
+        end)
+    end
+end
+
+-- 함정 설치 (TrapPlaced RemoteEvent 수신 후 GameManager가 호출)
+-- exitPosition: 출구 위치 Vector3 (이 반경 내에는 설치 불가)
+function ItemManager.placeTrap(player, exitPosition, mazeFolder)
+    local PlayerManager = require(game.ServerScriptService.Modules.PlayerManager)
+    if not PlayerManager.consumeTrap(player) then return end
+
+    local char = player.Character
+    if not char then
+        -- 함정 반환 (캐릭터 없음)
+        PlayerManager.giveTrap(player)
+        return
+    end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then
+        PlayerManager.giveTrap(player)
+        return
+    end
+
+    -- 출구 근처 설치 금지
+    if (hrp.Position - exitPosition).Magnitude <= Constants.TRAP_EXCLUSION_RADIUS then
+        PlayerManager.giveTrap(player)  -- 함정 반환
+        return
+    end
+
+    local HunterAI = require(game.ServerScriptService.Modules.HunterAI)
+
+    -- 함정 묶음 (충돌 감지 박스 + 진흙 시각 파트)
+    local trapModel = Instance.new("Model")
+    trapModel.Name   = "PlacedTrap"
+    trapModel.Parent = mazeFolder
+
+    -- 투명 충돌 감지 박스 (헌터 감지용)
+    local trapPart = Instance.new("Part")
+    trapPart.Name        = "TrapHitbox"
+    trapPart.Size        = Vector3.new(4, 3, 4)
+    trapPart.Position    = Vector3.new(hrp.Position.X, hrp.Position.Y - 1, hrp.Position.Z)
+    trapPart.Transparency = 1
+    trapPart.Anchored    = true
+    trapPart.CanCollide  = false
+    trapPart.CastShadow  = false
+    trapPart.Parent      = trapModel
+
+    -- 진흙 웅덩이 시각 파트
+    local mudPart = Instance.new("Part")
+    mudPart.Name      = "TrapMud"
+    mudPart.Shape     = Enum.PartType.Cylinder
+    mudPart.Size      = Vector3.new(0.4, 5.0, 5.0)
+    mudPart.CFrame    = CFrame.new(hrp.Position.X, hrp.Position.Y - 2.7, hrp.Position.Z)
+                        * CFrame.Angles(0, 0, math.pi / 2)
+    mudPart.Color     = Color3.fromRGB(60, 36, 10)
+    mudPart.Material  = Enum.Material.SmoothPlastic
+    mudPart.Transparency = 0.15
+    mudPart.Anchored  = true
+    mudPart.CanCollide = false
+    mudPart.Parent    = trapModel
+
+    -- 사냥꾼 충돌 감지 (단발 트리거)
+    local triggered = false
+    trapPart.Touched:Connect(function(hit)
+        if triggered then return end
+        if not trapModel.Parent then return end
+        local model = hit.Parent
+        while model and model ~= workspace do
+            if model.Name == "Hunter" then
+                triggered = true
+                trapModel:Destroy()
+                HunterAI.stun()
+                return
+            end
+            model = model.Parent
+        end
+    end)
+
+    -- HUD 업데이트 (함정 소비됨)
+    local remaining = PlayerManager.getTrapCount(player)
+    game.ReplicatedStorage.Events.UpdateHUD:FireClient(player, {
+        type  = "trapUsed",
+        count = remaining,
+    })
+end
+
+
+-- 모든 아이템 제거 (스테이지 전환 시)
+function ItemManager.clear(mazeFolder)
+    for _, item in ipairs(activeItems) do
+        if item.part and item.part.Parent then
+            item.part:Destroy()
+        end
+    end
+    activeItems = {}
+
+    -- 똥 오브젝트 제거 (workspace에 직접 배치됨)
+    for _, obj in ipairs(workspace:GetChildren()) do
+        if obj.Name == "CapyPoop" then obj:Destroy() end
+    end
+    -- PlacedTrap도 제거
+    if mazeFolder then
+        for _, obj in ipairs(mazeFolder:GetChildren()) do
+            if obj.Name == "PlacedTrap" then
+                obj:Destroy()
+            end
+        end
+    end
+end
+
+return ItemManager
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="19">
+        <Properties>
+          <string name="Name">MazeModule</string>
+          <string name="Source"><![CDATA[-- ServerScriptService/Modules/MazeModule
+local MazeModule = {}
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Constants = require(ReplicatedStorage.Shared.Constants)
+
+-- 방향 벡터 (상/하/좌/우)
+local DIRECTIONS = {
+    {r = -1, c = 0},  -- 위
+    {r =  1, c = 0},  -- 아래
+    {r =  0, c = -1}, -- 왼쪽
+    {r =  0, c = 1},  -- 오른쪽
+}
+
+-- 시드 기반 난수 생성기 (LCG, 재현 가능한 미로)
+local function makeRNG(seed)
+    local s = seed
+    return function()
+        s = (s * 1664525 + 1013904223) % (2^32)
+        return s / (2^32)
+    end
+end
+
+-- 리스트 무작위 섞기 (Fisher-Yates)
+local function shuffle(list, rng)
+    local n = #list
+    for i = n, 2, -1 do
+        local j = math.floor(rng() * i) + 1
+        list[i], list[j] = list[j], list[i]
+    end
+    return list
+end
+
+-- Recursive Backtracker 미로 생성
+-- 반환값: grid[r][c] = { visited=bool, walls={top, bottom, left, right} }
+function MazeModule.generate(size, seed)
+    local rng = makeRNG(seed)
+
+    -- 그리드 초기화 (모든 벽 있음, 미방문)
+    local grid = {}
+    for r = 1, size do
+        grid[r] = {}
+        for c = 1, size do
+            grid[r][c] = {
+                visited = false,
+                walls = {top = true, bottom = true, left = true, right = true}
+            }
+        end
+    end
+
+    -- 재귀 DFS
+    local function carve(r, c)
+        grid[r][c].visited = true
+        local dirs = shuffle({1, 2, 3, 4}, rng)
+        for _, di in ipairs(dirs) do
+            local d = DIRECTIONS[di]
+            local nr, nc = r + d.r, c + d.c
+            if nr >= 1 and nr <= size and nc >= 1 and nc <= size
+                and not grid[nr][nc].visited then
+                -- 현재 셀과 다음 셀 사이의 벽 제거
+                if d.r == -1 then
+                    grid[r][c].walls.top = false
+                    grid[nr][nc].walls.bottom = false
+                elseif d.r == 1 then
+                    grid[r][c].walls.bottom = false
+                    grid[nr][nc].walls.top = false
+                elseif d.c == -1 then
+                    grid[r][c].walls.left = false
+                    grid[nr][nc].walls.right = false
+                else
+                    grid[r][c].walls.right = false
+                    grid[nr][nc].walls.left = false
+                end
+                carve(nr, nc)
+            end
+        end
+    end
+
+    carve(1, 1)  -- 항상 (1,1)에서 시작 (입구 = 좌상단)
+    return grid
+end
+
+-- 스테이지 번호로 미로 크기 반환
+function MazeModule.getSizeForStage(stage)
+    if Constants.MAZE_SIZES[stage] then
+        return Constants.MAZE_SIZES[stage]
+    end
+    -- 스테이지 5+: 25에서 매 스테이지 +5, 최대 40
+    local extra = (stage - 4) * Constants.MAZE_SIZE_INCREMENT
+    return math.min(25 + extra, Constants.MAZE_SIZE_MAX)
+end
+
+-- 출구 위치 반환 (미로 우하단 코너)
+-- grid 좌표 (size, size) → 월드 좌표
+function MazeModule.getExitPosition(size)
+    local ws = Constants.WALL_SIZE.X  -- 셀 한 변의 길이 (4 studs)
+    return Vector3.new(
+        (size - 1) * ws + ws / 2,
+        Constants.FLOOR_SIZE.Y + 0.5,
+        (size - 1) * ws + ws / 2
+    )
+end
+
+-- 미로 렌더링: BasePart로 벽/바닥/출구 생성
+-- mazeFolder: Workspace 안의 Folder 인스턴스
+function MazeModule.render(grid, size, mazeFolder)
+    local ws = Constants.WALL_SIZE.X        -- 셀 크기
+    local wh = Constants.WALL_SIZE.Y        -- 벽 높이
+    local fw = Constants.FLOOR_SIZE.Y       -- 바닥 두께
+    local wallThickness = Constants.WALL_THICKNESS  -- 벽 두께 (Constants에서 관리)
+
+    local function makePart(name, size3, pos, color, transparent, material)
+        local p = Instance.new("Part")
+        p.Name = name
+        p.Size = size3
+        p.Position = pos
+        p.Anchored = true
+        p.BrickColor = BrickColor.new(color)
+        p.Color = color
+        p.Material = material or Enum.Material.SmoothPlastic
+        p.Transparency = transparent or 0
+        p.Parent = mazeFolder
+        return p
+    end
+
+    -- 미로 원점 (월드 좌표)
+    local originX = 0
+    local originZ = 0
+    local groundY = 0.6  -- Baseplate 상면(Y=0) 위로 띄워 Z-fighting 방지
+
+    for r = 1, size do
+        for c = 1, size do
+            local cell = grid[r][c]
+            -- 셀 중심 (X = 열방향, Z = 행방향)
+            local cx = originX + (c - 1) * ws + ws / 2
+            local cz = originZ + (r - 1) * ws + ws / 2
+
+            -- 바닥 타일 (흙 재질)
+            makePart("Floor",
+                Vector3.new(ws, fw, ws),
+                Vector3.new(cx, groundY - fw / 2, cz),
+                Constants.COLORS.Floor, nil, Enum.Material.Ground
+            )
+
+            -- 위쪽 벽 (r-1 방향) — Slate(돌흙) 재질
+            if cell.walls.top then
+                makePart("WallTop",
+                    Vector3.new(ws, wh, wallThickness),
+                    Vector3.new(cx, groundY + wh / 2, originZ + (r - 1) * ws),
+                    Constants.COLORS.Wall, nil, Enum.Material.Slate
+                )
+            end
+
+            -- 왼쪽 벽 (c-1 방향)
+            if cell.walls.left then
+                makePart("WallLeft",
+                    Vector3.new(wallThickness, wh, ws),
+                    Vector3.new(originX + (c - 1) * ws, groundY + wh / 2, cz),
+                    Constants.COLORS.Wall, nil, Enum.Material.Slate
+                )
+            end
+
+            -- 마지막 행: 아래쪽 외벽
+            if r == size and cell.walls.bottom then
+                makePart("WallBottom",
+                    Vector3.new(ws, wh, wallThickness),
+                    Vector3.new(cx, groundY + wh / 2, originZ + size * ws),
+                    Constants.COLORS.Wall, nil, Enum.Material.Slate
+                )
+            end
+
+            -- 마지막 열: 오른쪽 외벽
+            if c == size and cell.walls.right then
+                makePart("WallRight",
+                    Vector3.new(wallThickness, wh, ws),
+                    Vector3.new(originX + size * ws, groundY + wh / 2, cz),
+                    Constants.COLORS.Wall, nil, Enum.Material.Slate
+                )
+            end
+        end
+    end
+
+    -- 모서리 라운드 처리: 그리드 교차점마다 수직 원기둥 배치
+    -- Roblox Cylinder 기본축 = X축이므로 Z축 기준 90° 회전 → 수직(Y축) 원기둥
+    for ri = 0, size do
+        for ci = 0, size do
+            local cx = originX + ci * ws
+            local cz = originZ + ri * ws
+            local cornerPart = Instance.new("Part")
+            cornerPart.Name        = "Corner"
+            cornerPart.Shape       = Enum.PartType.Cylinder
+            -- Size.X = 원기둥 길이(높이), Size.Y/Z = 지름(wallThickness)
+            cornerPart.Size        = Vector3.new(wh, wallThickness, wallThickness)
+            cornerPart.CFrame      = CFrame.new(cx, groundY + wh / 2, cz)
+                                     * CFrame.Angles(0, 0, math.pi / 2)
+            cornerPart.Anchored    = true
+            cornerPart.Color       = Constants.COLORS.Wall
+            cornerPart.Material    = Enum.Material.Slate
+            cornerPart.CastShadow  = false
+            cornerPart.Parent      = mazeFolder
+        end
+    end
+
+    -- 출구 파트 (우하단 코너 바닥 위)
+    local exitX = originX + (size - 1) * ws + ws / 2
+    local exitZ = originZ + (size - 1) * ws + ws / 2
+    local exitPart = makePart("Exit",
+        Vector3.new(ws, 2, ws),          -- 높이 0.2 → 2 (Touched 감지 안정화)
+        Vector3.new(exitX, groundY + 1, exitZ),
+        Constants.COLORS.Exit
+    )
+    exitPart.Name = "Exit"
+
+    -- 스폰 위치: 미로 입구 첫 번째 셀 (1,1) 중앙, 바닥에서 3 studs 위
+    local spawnPosition = Vector3.new(originX + ws / 2, groundY + 3, originZ + ws / 2)
+
+    return {
+        exitPart      = exitPart,
+        spawnPosition = spawnPosition,
+        exitPosition  = Vector3.new(exitX, groundY + 0.1, exitZ),
+    }
+end
+
+-- 미로 파트 전체 삭제
+function MazeModule.clear(mazeFolder)
+    for _, child in ipairs(mazeFolder:GetChildren()) do
+        child:Destroy()
+    end
+end
+
+return MazeModule
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="20">
+        <Properties>
+          <string name="Name">PlayerManager</string>
+          <string name="Source"><![CDATA[-- ServerScriptService/Modules/PlayerManager
+local PlayerManager = {}
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Constants = require(ReplicatedStorage.Shared.Constants)
+
+-- 상태: "alive" | "escaped" | "spectator"
+local playerStates    = {}   -- [Player] = string
+local hasTrapTable    = {}   -- [Player] = int
+local carrotThreads   = {}   -- [Player] = thread (task.delay 취소용)
+local playerColors    = {}   -- [Player] = Color3
+local playerCharTypes = {}   -- [Player] = "Dad"|"Mom"|"Son"|"Daughter"
+local pendingCarrots  = {}   -- [Player] = bool (당근 효과 선택 대기 중)
+
+-- ── 색상 / 캐릭터 타입 저장 ────────────────────────────────────────────────
+function PlayerManager.setColor(player, color)
+    playerColors[player] = color
+end
+
+function PlayerManager.setCharType(player, charType)
+    playerCharTypes[player] = charType
+end
+
+-- ── 리본(보우타이) 파트를 HRP에 용접하는 헬퍼 ────────────────────────────
+local function makeWeldedPart(char, hrp, sz, color, offsetCF)
+    local part = Instance.new("Part")
+    part.Name     = "ColorRibbon"
+    part.Size     = sz
+    part.Color    = color
+    part.Material = Enum.Material.SmoothPlastic
+    part.Massless = true
+    part.CanCollide  = false
+    part.CastShadow  = false
+    part.Parent   = char
+
+    local w = Instance.new("Weld")
+    w.Part0 = hrp
+    w.Part1 = part
+    w.C0    = offsetCF
+    w.C1    = CFrame.identity
+    w.Parent = hrp
+    return part
+end
+
+-- 캐릭터 악세서리 파트를 HRP에 용접하는 헬퍼
+local function makeAccessoryPart(char, hrp, sz, color, offsetCF)
+    local part = Instance.new("Part")
+    part.Name     = "CharAccessory"
+    part.Size     = sz
+    part.Color    = color
+    part.Material = Enum.Material.SmoothPlastic
+    part.Massless = true
+    part.CanCollide  = false
+    part.CastShadow  = false
+    part.Parent   = char
+
+    local w = Instance.new("Weld")
+    w.Part0 = hrp
+    w.Part1 = part
+    w.C0    = offsetCF
+    w.C1    = CFrame.identity
+    w.Parent = hrp
+    return part
+end
+
+-- ── 색상 저장 (리본 제거됨 — 색상은 똥 표시에만 사용) ────────────────────
+function PlayerManager.applyColor(player)
+    -- 목 리본 없음. playerColors 는 setColor 로 저장되며 똥 색상에 활용됨.
+end
+
+-- ── 캐릭터 타입 악세서리 적용 ─────────────────────────────────────────────
+function PlayerManager.applyCharType(player)
+    local charType = playerCharTypes[player] or "Mom"
+    local char = player.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    -- 기존 악세서리 제거
+    for _, child in ipairs(char:GetChildren()) do
+        if child.Name == "CharAccessory" then child:Destroy() end
+    end
+
+    -- 카피바라 스킨드 메시: HRP 기준 사족보행 머리 위치
+    -- HY: 위쪽(+)  HZ: 앞쪽(-)  머리는 HRP 앞쪽 아래에 위치
+    local HY =  1.8   -- HRP 위 1.8 (머리 윗부분)
+    local HZ = -2.2   -- 앞쪽 2.2 (머리 위치)
+
+    if charType == "Dad" then
+        -- 🎩 탑햇: 챙 + 통
+        makeAccessoryPart(char, hrp,
+            Vector3.new(3.0, 0.22, 3.0),
+            Color3.fromRGB(30, 20, 10),
+            CFrame.new(0, HY, HZ))
+        makeAccessoryPart(char, hrp,
+            Vector3.new(1.8, 1.9, 1.8),
+            Color3.fromRGB(20, 12, 5),
+            CFrame.new(0, HY + 1.0, HZ))
+
+    elseif charType == "Mom" then
+        -- 🌸 머리꽃: 노란 중앙 + 분홍 꽃잎 4개
+        makeAccessoryPart(char, hrp,
+            Vector3.new(0.75, 0.4, 0.75),
+            Color3.fromRGB(255, 215, 40),
+            CFrame.new(0, HY + 0.3, HZ))
+        for i = 1, 4 do
+            local a = (i - 1) * (math.pi / 2)
+            makeAccessoryPart(char, hrp,
+                Vector3.new(0.85, 0.4, 0.4),
+                Color3.fromRGB(255, 155, 195),
+                CFrame.new(math.cos(a) * 0.7, HY + 0.3, HZ + math.sin(a) * 0.7)
+                    * CFrame.Angles(0, a, 0))
+        end
+
+    elseif charType == "Son" then
+        -- 🧢 야구 모자: 모자 + 앞챙
+        makeAccessoryPart(char, hrp,
+            Vector3.new(2.3, 1.1, 2.3),
+            Color3.fromRGB(60, 110, 210),
+            CFrame.new(0, HY + 0.3, HZ))
+        makeAccessoryPart(char, hrp,
+            Vector3.new(2.6, 0.2, 1.4),
+            Color3.fromRGB(50, 95, 190),
+            CFrame.new(0, HY - 0.2, HZ - 0.9))
+
+    elseif charType == "Daughter" then
+        -- 🎀 머리 리본: 중앙 매듭 + 양쪽 날개
+        makeAccessoryPart(char, hrp,
+            Vector3.new(0.6, 0.6, 0.5),
+            Color3.fromRGB(200, 130, 225),
+            CFrame.new(0, HY + 0.5, HZ))
+        makeAccessoryPart(char, hrp,
+            Vector3.new(1.1, 0.55, 0.3),
+            Color3.fromRGB(200, 130, 225),
+            CFrame.new(-0.75, HY + 0.5, HZ) * CFrame.Angles(0, 0, 0.3))
+        makeAccessoryPart(char, hrp,
+            Vector3.new(1.1, 0.55, 0.3),
+            Color3.fromRGB(200, 130, 225),
+            CFrame.new( 0.75, HY + 0.5, HZ) * CFrame.Angles(0, 0, -0.3))
+    end
+end
+
+-- ── 초기화 ────────────────────────────────────────────────────────────────
+function PlayerManager.init(players)
+    playerStates = {}
+    hasTrapTable = {}
+    pendingCarrots = {}
+    for player, thread in pairs(carrotThreads) do
+        pcall(task.cancel, thread)
+    end
+    carrotThreads = {}
+
+    for _, player in ipairs(players) do
+        playerStates[player] = "alive"
+        hasTrapTable[player] = 0
+        local char = player.Character
+        if char then
+            local humanoid = char:FindFirstChild("Humanoid")
+            if humanoid then
+                humanoid.WalkSpeed = Constants.PLAYER_BASE_SPEED
+            end
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide  = true
+                    part.Transparency = 0
+                end
+            end
+            PlayerManager.applyColor(player)
+        end
+    end
+end
+
+function PlayerManager.getState(player)
+    return playerStates[player]
+end
+
+function PlayerManager.setEscaped(player)
+    playerStates[player] = "escaped"
+end
+
+function PlayerManager.eliminate(player)
+    playerStates[player] = "spectator"
+    local char = player.Character
+    if char then
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide   = false
+                part.Transparency = 0.8
+            end
+        end
+        local humanoid = char:FindFirstChild("Humanoid")
+        if humanoid then
+            humanoid.WalkSpeed = 0
+        end
+    end
+    local Events = game.ReplicatedStorage.Events
+    Events.PlayerEliminated:FireClient(player)
+end
+
+function PlayerManager.getAliveCount()
+    local count = 0
+    for _, state in pairs(playerStates) do
+        if state == "alive" then count += 1 end
+    end
+    return count
+end
+
+function PlayerManager.getSurvivorCount()
+    local count = 0
+    for _, state in pairs(playerStates) do
+        if state == "alive" or state == "escaped" then count += 1 end
+    end
+    return count
+end
+
+function PlayerManager.getEscapedCount()
+    local count = 0
+    for _, state in pairs(playerStates) do
+        if state == "escaped" then count += 1 end
+    end
+    return count
+end
+
+function PlayerManager.getAlivePlayers()
+    local list = {}
+    for player, state in pairs(playerStates) do
+        if state == "alive" then table.insert(list, player) end
+    end
+    return list
+end
+
+function PlayerManager.getSurvivorPlayers()
+    local list = {}
+    for player, state in pairs(playerStates) do
+        if state == "alive" or state == "escaped" then
+            table.insert(list, player)
+        end
+    end
+    return list
+end
+
+function PlayerManager.giveTrap(player)
+    hasTrapTable[player] = (hasTrapTable[player] or 0) + 1
+end
+
+function PlayerManager.consumeTrap(player)
+    local count = hasTrapTable[player] or 0
+    if count > 0 then
+        hasTrapTable[player] = count - 1
+        return true
+    end
+    return false
+end
+
+function PlayerManager.hasTrap(player)
+    return (hasTrapTable[player] or 0) > 0
+end
+
+function PlayerManager.getTrapCount(player)
+    return hasTrapTable[player] or 0
+end
+
+-- ── 당근 대기 상태 ────────────────────────────────────────────────────────
+function PlayerManager.setPendingCarrot(player, value)
+    pendingCarrots[player] = value
+end
+
+function PlayerManager.hasPendingCarrot(player)
+    return pendingCarrots[player] == true
+end
+
+-- ── 당근 효과 1: 속도 증가 ────────────────────────────────────────────────
+function PlayerManager.applySpeedBoost(player)
+    pendingCarrots[player] = nil
+    local char = player.Character
+    if not char then return end
+    local humanoid = char:FindFirstChild("Humanoid")
+    if not humanoid then return end
+
+    humanoid.WalkSpeed = Constants.CARROT_SPEED
+
+    if carrotThreads[player] then
+        pcall(task.cancel, carrotThreads[player])
+        carrotThreads[player] = nil
+    end
+
+    carrotThreads[player] = task.delay(Constants.CARROT_DURATION, function()
+        carrotThreads[player] = nil
+        local c = player.Character
+        if c then
+            local h = c:FindFirstChild("Humanoid")
+            if h then h.WalkSpeed = Constants.PLAYER_BASE_SPEED end
+        end
+    end)
+end
+
+-- ── 당근 효과 2: 💩 위치 표시 (쌓인 구체 더미 모양) ──────────────────────
+function PlayerManager.applyPoop(player)
+    pendingCarrots[player] = nil
+    local char = player.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    -- 플레이어 선택 색상 (없으면 갈색 기본값)
+    local color = playerColors[player] or Color3.fromRGB(101, 67, 33)
+    local bx    = hrp.Position.X
+    local by    = hrp.Position.Y - 2.6  -- 바닥 근처
+    local bz    = hrp.Position.Z
+
+    -- 똥 모델 (구체 4단 스택)
+    local model = Instance.new("Model")
+    model.Name   = "CapyPoop"
+    model.Parent = workspace
+
+    local function addSphere(sz, yOff)
+        local p = Instance.new("Part")
+        p.Shape      = Enum.PartType.Ball
+        p.Size       = Vector3.new(sz, sz, sz)
+        p.Color      = color
+        p.Material   = Enum.Material.SmoothPlastic
+        p.Anchored   = true
+        p.CanCollide = false
+        p.CastShadow = false
+        p.Position   = Vector3.new(bx, by + yOff, bz)
+        p.Parent     = model
+        return p
+    end
+
+    local base = addSphere(1.6, 0.8)   -- 아래 (가장 큼)
+                 addSphere(1.2, 1.8)   -- 중간
+                 addSphere(0.85, 2.6)  -- 위
+                 addSphere(0.45, 3.15) -- 꼭대기
+
+    -- 이모지 빌보드 (아래 파트 기준 위쪽으로 표시)
+    local bb = Instance.new("BillboardGui")
+    bb.Size        = UDim2.new(0, 52, 0, 40)
+    bb.StudsOffset = Vector3.new(0, 3.5, 0)
+    bb.AlwaysOnTop = false
+    bb.Parent      = base
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Text                   = "💩"
+    lbl.TextScaled             = true
+    lbl.BackgroundTransparency = 1
+    lbl.Size                   = UDim2.new(1, 0, 1, 0)
+    lbl.Parent                 = bb
+
+    -- 스테이지 종료까지 유지 (ItemManager.clear 에서 제거됨)
+end
+
+-- 하위 호환용 (기존 코드에서 applyCarrot 호출 시 속도 증가로 처리)
+function PlayerManager.applyCarrot(player)
+    PlayerManager.applySpeedBoost(player)
+end
+
+return PlayerManager
+]]></string>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+  <Item class="StarterPlayer" referent="21">
+    <Properties>
+      <string name="Name">StarterPlayer</string>
+    </Properties>
+    <Item class="StarterCharacterScripts" referent="22">
+      <Properties>
+        <string name="Name">StarterCharacterScripts</string>
+      </Properties>
+      <Item class="LocalScript" referent="23">
+        <Properties>
+          <string name="Name">CapybaraAnimate</string>
+          <string name="Source"><![CDATA[-- StarterCharacterScripts/CapybaraAnimate.client.lua
+-- Bone.Transform 직접 조작 방식 — 카피바라 스킨드 메시 전용
+local RunService = game:GetService("RunService")
+local Players    = game:GetService("Players")
+
+local player    = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid  = character:WaitForChild("Humanoid", 10)
+if not humanoid then return end
+
+-- 기본 Animate 스크립트 제거 (충돌 방지)
+local defaultAnimate = character:FindFirstChild("Animate")
+if defaultAnimate then defaultAnimate:Destroy() end
+
+-- ── Bone 오브젝트 수집 ────────────────────────────────────────────────────
+local bones = {}
+for _, v in ipairs(character:GetDescendants()) do
+    if v:IsA("Bone") then
+        bones[v.Name] = v
+    end
+end
+
+-- ── 애니메이션에 사용할 핵심 뼈대 ────────────────────────────────────────
+local B = {
+    -- 앞다리 (fore)
+    FL1 = bones["fore_leg_1.L"],  -- 앞왼 어깨 (주 스윙)
+    FL2 = bones["fore_leg_2.L"],  -- 앞왼 팔꿈치
+    FL3 = bones["fore_leg_3.L"],  -- 앞왼 손목
+    FR1 = bones["fore_leg_1.R"],  -- 앞오 어깨 (주 스윙)
+    FR2 = bones["fore_leg_2.R"],  -- 앞오 팔꿈치
+    FR3 = bones["fore_leg_3.R"],  -- 앞오 손목
+    -- 뒷다리 (rear)
+    RL1 = bones["rear_leg_1.L"],  -- 뒤왼 엉덩이 (주 스윙)
+    RL2 = bones["rear_leg_2.L"],  -- 뒤왼 무릎
+    RR1 = bones["rear_leg_1.R"],  -- 뒤오 엉덩이 (주 스윙)
+    RR2 = bones["rear_leg_2.R"],  -- 뒤오 무릎
+    -- 척추·머리
+    spine = bones["spine_2"],
+    neck  = bones["neck_1"],
+    -- 꼬리
+    tail1 = bones["tail_1"],
+    tail2 = bones["tail_2"],
+}
+
+-- ── 파라미터 ─────────────────────────────────────────────────────────────
+-- 다리가 앞뒤 대신 좌우로 흔들리면 AXIS_IDX 를 3 으로 바꿔보세요
+-- (1 = X축, 3 = Z축)
+local AXIS_IDX = 1     -- 스윙 회전축 (1=X축, 3=Z축)
+
+-- 이동 거리 기반 속도 동기화
+-- 값 낮추면 보폭 느리게, 높이면 빠르게
+local STEPS_PER_STUD = 0.9
+
+local SWING   = 0.45   -- 어깨/엉덩이 최대 각도 (rad ≈ 26°)
+local KNEE    = 0.30   -- 팔꿈치/무릎 굽힘 각도
+local WRIST   = 0.15   -- 손목 각도
+local BOB     = 0.035  -- 몸통 상하 진폭 (studs)
+
+local function swingCF(angle)
+    if AXIS_IDX == 1 then
+        return CFrame.Angles(angle, 0, 0)
+    else
+        return CFrame.Angles(0, 0, angle)
+    end
+end
+
+local walkPhase = 0
+local hrp = character:FindFirstChild("HumanoidRootPart")
+
+-- ── 메인 루프 ─────────────────────────────────────────────────────────────
+local conn = RunService.Heartbeat:Connect(function(dt)
+    if not humanoid.Parent then conn:Disconnect(); return end
+
+    -- 실제 이동 속도(velocity)로 walkPhase 증가 → 이동 거리와 보폭 완벽 동기화
+    local vel = hrp and hrp.AssemblyLinearVelocity or Vector3.zero
+    local groundSpeed = Vector3.new(vel.X, 0, vel.Z).Magnitude
+    local moving = groundSpeed > 0.5
+
+    walkPhase += dt * groundSpeed * STEPS_PER_STUD
+
+    -- 대각선 보행 (trot): FL+RR 동위상 / FR+RL 역위상
+    local s  = moving and math.sin(walkPhase) or 0
+    local s2 = -s
+
+    local bob = moving and (math.abs(math.sin(walkPhase * 2)) * BOB) or 0
+
+    -- 앞다리 ─────────────────────────────────────────────────────────────
+    if B.FL1 then B.FL1.Transform = swingCF( s  * SWING) end
+    if B.FR1 then B.FR1.Transform = swingCF( s2 * SWING) end
+    -- 팔꿈치: 앞으로 나올 때 살짝 구부림
+    if B.FL2 then B.FL2.Transform = swingCF(math.max(0,  s) * KNEE)  end
+    if B.FR2 then B.FR2.Transform = swingCF(math.max(0, s2) * KNEE)  end
+    -- 손목: 미세 굽힘
+    if B.FL3 then B.FL3.Transform = swingCF(math.max(0,  s) * WRIST) end
+    if B.FR3 then B.FR3.Transform = swingCF(math.max(0, s2) * WRIST) end
+
+    -- 뒷다리 (앞다리 대각선 반대) ─────────────────────────────────────────
+    if B.RR1 then B.RR1.Transform = swingCF( s  * SWING) end
+    if B.RL1 then B.RL1.Transform = swingCF( s2 * SWING) end
+    if B.RR2 then B.RR2.Transform = swingCF(math.max(0,  s) * KNEE) end
+    if B.RL2 then B.RL2.Transform = swingCF(math.max(0, s2) * KNEE) end
+
+    -- 척추 상하 흔들림 ────────────────────────────────────────────────────
+    if B.spine then B.spine.Transform = CFrame.new(0, -bob, 0) end
+
+    -- 머리 고개 끄덕임 (미세) ─────────────────────────────────────────────
+    if B.neck then
+        B.neck.Transform = CFrame.Angles(math.sin(walkPhase * 2) * 0.04, 0, 0)
+    end
+
+    -- 꼬리 좌우 흔들기 ────────────────────────────────────────────────────
+    if B.tail1 then
+        B.tail1.Transform = CFrame.Angles(0, math.sin(walkPhase * 0.8) * 0.25, 0)
+    end
+    if B.tail2 then
+        B.tail2.Transform = CFrame.Angles(0, math.sin(walkPhase * 0.8 + 0.5) * 0.2, 0)
+    end
+end)
+
+humanoid.Died:Connect(function()
+    conn:Disconnect()
+    for _, b in pairs(B) do
+        if b then b.Transform = CFrame.identity end
+    end
+end)
+]]></string>
+        </Properties>
+      </Item>
+    </Item>
+    <Item class="StarterPlayerScripts" referent="24">
+      <Properties>
+        <string name="Name">StarterPlayerScripts</string>
+      </Properties>
+      <Item class="LocalScript" referent="25">
+        <Properties>
+          <string name="Name">BGM</string>
+          <string name="Source"><![CDATA[-- StarterPlayerScripts/BGM.client.lua
+-- 헌터 발견 상태 + 40 studs 이내일 때만 긴박한 BGM 전환
+local RunService   = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local Players      = game:GetService("Players")
+local SoundService = game:GetService("SoundService")
+
+local player = Players.LocalPlayer
+local Events = game.ReplicatedStorage.Events
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- ⚠️ SoundId를 실제 Roblox 오디오 에셋 ID로 교체하세요
+-- Toolbox → 오디오 탭 → 검색 → 에셋 ID 복사
+local PEACEFUL_ID = 0   -- 평화로운 BGM 에셋 ID
+local TENSE_ID    = 0   -- 긴박한 BGM 에셋 ID
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+local BGM_VOLUME    = 0.45   -- 기본 볼륨
+local DETECT_RADIUS = 40     -- 긴박 전환 거리 (studs)
+local FADE_TIME     = 1.5    -- 크로스페이드 시간 (초)
+
+-- Sound 오브젝트 생성
+local function makeSound(id)
+    local s = Instance.new("Sound")
+    s.SoundId  = "rbxassetid://" .. id
+    s.Volume   = 0
+    s.Looped   = true
+    s.RollOffMaxDistance = 0  -- 글로벌 2D 사운드
+    s.Parent   = SoundService
+    return s
+end
+
+local peacefulSound = makeSound(PEACEFUL_ID)
+local tenseSound    = makeSound(TENSE_ID)
+
+local function fade(sound, toVolume)
+    TweenService:Create(
+        sound,
+        TweenInfo.new(FADE_TIME, Enum.EasingStyle.Sine),
+        { Volume = toVolume }
+    ):Play()
+end
+
+local currentMode = nil   -- "peaceful" | "tense"
+
+local function setMode(mode)
+    if currentMode == mode then return end
+    currentMode = mode
+    if mode == "peaceful" then
+        if not peacefulSound.IsPlaying then peacefulSound:Play() end
+        fade(peacefulSound, BGM_VOLUME)
+        fade(tenseSound, 0)
+    else  -- "tense"
+        if not tenseSound.IsPlaying then tenseSound:Play() end
+        fade(tenseSound, BGM_VOLUME)
+        fade(peacefulSound, 0)
+    end
+end
+
+-- 시작: 평화로운 BGM
+peacefulSound:Play()
+setMode("peaceful")
+
+-- ── 헌터 발견 상태 추적 ───────────────────────────
+local isDetected = false
+
+Events.HunterAlert.OnClientEvent:Connect(function(detected)
+    isDetected = detected
+    -- 발견 해제 시 즉시 평화로운 BGM (거리 무관)
+    if not detected then
+        setMode("peaceful")
+    end
+end)
+
+-- ── 매 프레임: 발견 중 + 40 studs 이내일 때만 긴박 ──
+RunService.Heartbeat:Connect(function()
+    if not isDetected then return end  -- 미발견이면 체크 안 함
+
+    local char = player.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    local hunter = workspace:FindFirstChild("Hunter")
+    if not hunter then
+        isDetected = false
+        setMode("peaceful")
+        return
+    end
+
+    -- Hunter 모델에서 HumanoidRootPart 탐색
+    local hunterHRP = hunter:FindFirstChild("HumanoidRootPart")
+    if not hunterHRP then
+        for _, child in ipairs(hunter:GetDescendants()) do
+            if child.Name == "HumanoidRootPart" and child:IsA("BasePart") then
+                hunterHRP = child
+                break
+            end
+        end
+    end
+    if not hunterHRP then return end
+
+    local dist = (hrp.Position - hunterHRP.Position).Magnitude
+    if dist <= DETECT_RADIUS then
+        setMode("tense")
+    else
+        setMode("peaceful")
+    end
+end)
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="LocalScript" referent="26">
+        <Properties>
+          <string name="Name">ClientUI</string>
+          <string name="Source"><![CDATA[-- StarterPlayerScripts/ClientUI
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+local Events = ReplicatedStorage.Events
+
+-- ScreenGui 생성
+local screenGui = Instance.new("ScreenGui")
+screenGui.ResetOnSpawn = false
+screenGui.Name = "GameHUD"
+screenGui.Parent = player.PlayerGui
+
+-- 색상 상수
+local pastelBg = Color3.fromRGB(255, 245, 230)     -- 크림색 배경
+local textColorNormal = Color3.fromRGB(80, 60, 60)  -- 기본 텍스트
+local carrotFlashColor = Color3.fromRGB(255, 179, 102) -- 당근 획득 플래시
+
+-- HUD 레이블 생성 헬퍼
+local function makeLabel(name, text, anchorPoint, position, size)
+    local frame = Instance.new("Frame")
+    frame.Name = name .. "Frame"
+    frame.BackgroundColor3 = pastelBg
+    frame.BackgroundTransparency = 0.3
+    frame.BorderSizePixel = 0
+    frame.AnchorPoint = anchorPoint
+    frame.Position = position
+    frame.Size = size
+    frame.Parent = screenGui
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 20)
+    corner.Parent = frame
+
+    local label = Instance.new("TextLabel")
+    label.Name = name
+    label.Text = text
+    label.TextColor3 = textColorNormal
+    label.BackgroundTransparency = 1
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.Font = Enum.Font.GothamBold
+    label.TextScaled = true
+    label.Parent = frame
+    return label
+end
+
+-- 상단 HUD 3개 레이블
+local stageLabel = makeLabel(
+    "StageLabel", "스테이지 1",
+    Vector2.new(0, 0),
+    UDim2.new(0, 10, 0, 10),
+    UDim2.new(0, 150, 0, 40)
+)
+
+local timerLabel = makeLabel(
+    "TimerLabel", "01:30",
+    Vector2.new(0.5, 0),
+    UDim2.new(0.5, 0, 0, 10),
+    UDim2.new(0, 120, 0, 40)
+)
+
+local survivorsLabel = makeLabel(
+    "SurvivorsLabel", "생존자 0명",
+    Vector2.new(1, 0),
+    UDim2.new(1, -10, 0, 10),
+    UDim2.new(0, 150, 0, 40)
+)
+
+-- 당근 버튼 공통 생성 헬퍼
+local function makeCarrotButton(text, bgColor, yOffset)
+    local btn = Instance.new("TextButton")
+    btn.BackgroundColor3 = bgColor
+    btn.TextColor3 = Color3.fromRGB(50, 30, 10)
+    btn.AnchorPoint = Vector2.new(1, 1)
+    btn.Position = UDim2.new(1, -10, 1, yOffset)
+    btn.Size = UDim2.new(0, 150, 0, 50)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 15
+    btn.Text = text
+    btn.Visible = false
+    btn.Parent = screenGui
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, 22)
+    c.Parent = btn
+    return btn
+end
+
+-- 💩 버튼 (G키) — 함정 버튼 위에 배치
+local poopButton  = makeCarrotButton("💩 똥 싸기 [G]",  Color3.fromRGB(200, 160, 80),  -130)
+-- ⚡ 버튼 (H키)
+local speedButton = makeCarrotButton("⚡ 속도 증가 [H]", Color3.fromRGB(255, 220, 80), -74)
+
+local function hideCarrotButtons()
+    poopButton.Visible  = false
+    speedButton.Visible = false
+end
+
+local function useCarrot(choice)
+    if not poopButton.Visible then return end  -- 이미 사용됨
+    hideCarrotButtons()
+    Events.CarrotChoice:FireServer(choice)
+end
+
+poopButton.MouseButton1Click:Connect(function()  useCarrot("poop")  end)
+speedButton.MouseButton1Click:Connect(function() useCarrot("speed") end)
+
+-- 함정 버튼 (우하단, 기본 숨김)
+local trapButton = Instance.new("TextButton")
+trapButton.Name = "TrapButton"
+trapButton.Text = "🪤 함정 [F]"
+trapButton.BackgroundColor3 = Color3.fromRGB(255, 204, 213)  -- 연분홍
+trapButton.TextColor3 = textColorNormal
+trapButton.AnchorPoint = Vector2.new(1, 1)
+trapButton.Position = UDim2.new(1, -10, 1, -10)
+trapButton.Size = UDim2.new(0, 150, 0, 50)
+trapButton.Font = Enum.Font.GothamBold
+trapButton.TextSize = 16
+trapButton.Visible = false
+trapButton.Parent = screenGui
+
+local trapCorner = Instance.new("UICorner")
+trapCorner.CornerRadius = UDim.new(0, 22)
+trapCorner.Parent = trapButton
+
+-- 탈락 오버레이 (기본 숨김)
+local eliminatedOverlay = Instance.new("Frame")
+eliminatedOverlay.Name = "EliminatedOverlay"
+eliminatedOverlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+eliminatedOverlay.BackgroundTransparency = 0.4
+eliminatedOverlay.Size = UDim2.new(1, 0, 1, 0)
+eliminatedOverlay.Visible = false
+eliminatedOverlay.ZIndex = 10
+eliminatedOverlay.Parent = screenGui
+
+local eliminatedText = Instance.new("TextLabel")
+eliminatedText.Text = "잡혔다!"
+eliminatedText.TextColor3 = Color3.fromRGB(255, 100, 100)
+eliminatedText.BackgroundTransparency = 1
+eliminatedText.Size = UDim2.new(1, 0, 0.5, 0)   -- 위쪽 절반 (재도전 버튼 공간 확보)
+eliminatedText.Position = UDim2.new(0, 0, 0, 0)
+eliminatedText.Font = Enum.Font.GothamBold
+eliminatedText.TextSize = 72
+eliminatedText.ZIndex = 11
+eliminatedText.Parent = eliminatedOverlay
+
+-- 재도전 버튼 (GameOver 후에만 표시)
+local rematchBtn = Instance.new("TextButton")
+rematchBtn.Name = "RematchButton"
+rematchBtn.Text = "🔄  재도전"
+rematchBtn.Size = UDim2.new(0, 220, 0, 60)
+rematchBtn.AnchorPoint = Vector2.new(0.5, 0.5)
+rematchBtn.Position = UDim2.new(0.5, 0, 0.65, 0)
+rematchBtn.BackgroundColor3 = Color3.fromRGB(130, 220, 160)
+rematchBtn.TextColor3 = Color3.fromRGB(30, 80, 50)
+rematchBtn.Font = Enum.Font.GothamBold
+rematchBtn.TextSize = 22
+rematchBtn.Visible = false
+rematchBtn.ZIndex = 12
+rematchBtn.Parent = screenGui
+
+local rematchCorner = Instance.new("UICorner")
+rematchCorner.CornerRadius = UDim.new(0, 24)
+rematchCorner.Parent = rematchBtn
+
+local isRematchReady = false
+
+-- 타이머 포맷 (초 → MM:SS)
+local function formatTime(seconds)
+    local m = math.floor(seconds / 60)
+    local s = seconds % 60
+    return string.format("%02d:%02d", m, s)
+end
+
+-- 함정 설치 공통 함수
+local function useTrap()
+    if not trapButton.Visible then return end
+    Events.TrapPlaced:FireServer()
+    trapButton.Visible = false
+end
+
+-- 함정 버튼 클릭
+trapButton.MouseButton1Click:Connect(useTrap)
+
+-- 키보드 단축키
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.F then
+        useTrap()
+    elseif input.KeyCode == Enum.KeyCode.G then
+        useCarrot("poop")
+    elseif input.KeyCode == Enum.KeyCode.H then
+        useCarrot("speed")
+    end
+end)
+
+-- 재도전 버튼 클릭
+rematchBtn.MouseButton1Click:Connect(function()
+    if isRematchReady then return end
+    isRematchReady = true
+    rematchBtn.Text = "⏳  다른 플레이어 대기 중..."
+    rematchBtn.BackgroundColor3 = Color3.fromRGB(180, 180, 180)
+    rematchBtn.TextColor3 = Color3.fromRGB(100, 100, 100)
+    Events.ReadyUp:FireServer()
+end)
+
+-- 스테이지 시작 이벤트 (재도전 성공 → 새 게임 시작)
+Events.StageStarted.OnClientEvent:Connect(function(data)
+    stageLabel.Text = "스테이지 " .. data.stage
+    -- 타이머 프레임 숨김 (탈출 시 소요 시간으로 교체됨)
+    timerLabel.Parent.Visible = false
+    stageStartedAt = tick()
+    survivorsLabel.Text = "생존자 " .. data.survivors .. "명"
+    eliminatedOverlay.Visible = false
+    trapButton.Visible = false
+    hideCarrotButtons()
+    -- 카운트다운 / 랭킹 프레임 제거
+    local oldCd = screenGui:FindFirstChild("StageCountdown")
+    if oldCd then oldCd:Destroy() end
+    local oldFrame = screenGui:FindFirstChild("RankingFrame")
+    if oldFrame then oldFrame:Destroy() end
+    -- 재도전 버튼 초기화
+    rematchBtn.Visible = false
+    isRematchReady = false
+    rematchBtn.Text = "🔄  재도전"
+    rematchBtn.BackgroundColor3 = Color3.fromRGB(130, 220, 160)
+    rematchBtn.TextColor3 = Color3.fromRGB(30, 80, 50)
+end)
+
+-- HUD 업데이트 이벤트
+Events.UpdateHUD.OnClientEvent:Connect(function(data)
+    if data.type == "timer" then
+        -- 제한 시간 없음 모드 → timer 이벤트 무시
+        return
+
+    elseif data.type == "extraHunterSpawned" then
+        -- ⚠️ 추가 헌터 등장 경고
+        local warn = Instance.new("TextLabel")
+        warn.Text = "⚠️  추가 헌터 등장!  (" .. (data.count or 1) .. "마리째)"
+        warn.Font = Enum.Font.GothamBold
+        warn.TextSize = 30
+        warn.TextColor3 = Color3.fromRGB(255, 60, 60)
+        warn.TextStrokeColor3 = Color3.fromRGB(80, 0, 0)
+        warn.TextStrokeTransparency = 0.2
+        warn.BackgroundTransparency = 1
+        warn.Size = UDim2.new(0.9, 0, 0.1, 0)
+        warn.AnchorPoint = Vector2.new(0.5, 0.5)
+        warn.Position = UDim2.new(0.5, 0, 0.25, 0)
+        warn.ZIndex = 9
+        warn.Parent = screenGui
+        TweenService:Create(warn,
+            TweenInfo.new(2.0, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+            {Position = UDim2.new(0.5, 0, 0.15, 0),
+             TextTransparency = 1,
+             TextStrokeTransparency = 1}
+        ):Play()
+        task.delay(2.2, function()
+            if warn.Parent then warn:Destroy() end
+        end)
+
+    elseif data.type == "escapedSelf" then
+        -- 탈출 소요 시간을 타이머 자리에 표시
+        local elapsed = math.floor(tick() - stageStartedAt)
+        timerLabel.Text = "🏁 " .. formatTime(elapsed)
+        timerLabel.TextColor3 = Color3.fromRGB(80, 200, 120)
+        timerLabel.Parent.Visible = true
+
+        -- 탈출 성공 팝업 알림
+        local notif = Instance.new("TextLabel")
+        notif.Text = "🎉  탈출 성공!  " .. formatTime(elapsed)
+        notif.Font = Enum.Font.GothamBold
+        notif.TextSize = 52
+        notif.TextColor3 = Color3.fromRGB(100, 255, 160)
+        notif.TextStrokeColor3 = Color3.fromRGB(0, 60, 30)
+        notif.TextStrokeTransparency = 0.2
+        notif.BackgroundTransparency = 1
+        notif.Size = UDim2.new(0.8, 0, 0.15, 0)
+        notif.AnchorPoint = Vector2.new(0.5, 0.5)
+        notif.Position = UDim2.new(0.5, 0, 0.45, 0)
+        notif.ZIndex = 9
+        notif.Parent = screenGui
+        TweenService:Create(notif,
+            TweenInfo.new(1.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+            {Position = UDim2.new(0.5, 0, 0.3, 0),
+             TextTransparency = 1,
+             TextStrokeTransparency = 1}
+        ):Play()
+        task.delay(2, function()
+            if notif.Parent then notif:Destroy() end
+        end)
+
+    elseif data.type == "stageCountdown" then
+        -- 기존 카운트다운 제거
+        local old = screenGui:FindFirstChild("StageCountdown")
+        if old then old:Destroy() end
+
+        if data.count == 0 then return end  -- 0 = 제거만 하고 종료
+
+        local frame = Instance.new("Frame")
+        frame.Name = "StageCountdown"
+        frame.BackgroundColor3 = Color3.fromRGB(10, 10, 20)
+        frame.BackgroundTransparency = 0.3
+        frame.Size = UDim2.new(0, 260, 0, 110)
+        frame.AnchorPoint = Vector2.new(0.5, 0.5)
+        frame.Position = UDim2.new(0.5, 0, 0.5, 0)
+        frame.BorderSizePixel = 0
+        frame.ZIndex = 20
+        frame.Parent = screenGui
+
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 16)
+        corner.Parent = frame
+
+        -- 라벨 (예: "스테이지 2 시작!")
+        local lbl = Instance.new("TextLabel")
+        lbl.Text = data.label or ""
+        lbl.Font = Enum.Font.GothamBold
+        lbl.TextSize = 22
+        lbl.TextColor3 = Color3.fromRGB(255, 240, 180)
+        lbl.BackgroundTransparency = 1
+        lbl.Size = UDim2.new(1, 0, 0, 36)
+        lbl.Position = UDim2.new(0, 0, 0, 6)
+        lbl.ZIndex = 21
+        lbl.Parent = frame
+
+        -- 숫자 카운트
+        local num = Instance.new("TextLabel")
+        num.Text = tostring(data.count)
+        num.Font = Enum.Font.GothamBold
+        num.TextSize = 56
+        num.TextColor3 = Color3.fromRGB(100, 220, 255)
+        num.BackgroundTransparency = 1
+        num.Size = UDim2.new(1, 0, 0, 60)
+        num.Position = UDim2.new(0, 0, 0, 42)
+        num.ZIndex = 21
+        num.Parent = frame
+
+        -- 팝인 애니메이션
+        frame.Size = UDim2.new(0, 200, 0, 80)
+        TweenService:Create(frame,
+            TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+            { Size = UDim2.new(0, 260, 0, 110) }
+        ):Play()
+
+    elseif data.type == "playerEscaped" or data.type == "playerCaught" then
+        survivorsLabel.Text = "생존자 " .. (data.survivors or 0) .. "명"
+
+    elseif data.type == "trapPickup" then
+        local cnt = data.count or 1
+        trapButton.Text    = "🪤 함정 [F]  x" .. cnt
+        trapButton.Visible = true
+
+    elseif data.type == "trapUsed" then
+        local cnt = data.count or 0
+        if cnt > 0 then
+            trapButton.Text = "🪤 함정 [F]  x" .. cnt
+        else
+            trapButton.Visible = false
+            trapButton.Text    = "🪤 함정 [F]"
+        end
+
+    elseif data.type == "carrotPickup" then
+        -- 당근 획득 → 두 버튼 표시
+        poopButton.Visible  = true
+        speedButton.Visible = true
+
+    elseif data.type == "carrotUsedPoop" then
+        -- 💩 선택 알림
+        hideCarrotButtons()
+        local notif = Instance.new("TextLabel")
+        notif.Text = "💩  위치가 노출됐다!"
+        notif.Font = Enum.Font.GothamBold
+        notif.TextSize = 36
+        notif.TextColor3 = Color3.fromRGB(160, 100, 40)
+        notif.TextStrokeColor3 = Color3.fromRGB(60, 30, 0)
+        notif.TextStrokeTransparency = 0.3
+        notif.BackgroundTransparency = 1
+        notif.Size = UDim2.new(0.7, 0, 0.12, 0)
+        notif.AnchorPoint = Vector2.new(0.5, 0.5)
+        notif.Position = UDim2.new(0.5, 0, 0.58, 0)
+        notif.ZIndex = 9
+        notif.Parent = screenGui
+        TweenService:Create(notif,
+            TweenInfo.new(1.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+            {Position = UDim2.new(0.5, 0, 0.42, 0),
+             TextTransparency = 1, TextStrokeTransparency = 1}
+        ):Play()
+        task.delay(2, function() if notif.Parent then notif:Destroy() end end)
+
+    elseif data.type == "carrotUsedSpeed" then
+        -- ⚡ 선택 알림 + 화면 글로우
+        hideCarrotButtons()
+        -- 플래시
+        task.spawn(function()
+            for _ = 1, 3 do
+                local flash = Instance.new("Frame")
+                flash.BackgroundColor3 = carrotFlashColor
+                flash.BackgroundTransparency = 0.4
+                flash.Size = UDim2.new(1, 0, 1, 0)
+                flash.ZIndex = 5
+                flash.Parent = screenGui
+                TweenService:Create(flash,
+                    TweenInfo.new(0.12, Enum.EasingStyle.Linear),
+                    {BackgroundTransparency = 1}):Play()
+                task.wait(0.18)
+                if flash.Parent then flash:Destroy() end
+            end
+        end)
+        -- 텍스트 알림
+        local notif = Instance.new("TextLabel")
+        notif.Text = "⚡  속도 증가!"
+        notif.Font = Enum.Font.GothamBold
+        notif.TextSize = 42
+        notif.TextColor3 = carrotFlashColor
+        notif.TextStrokeColor3 = Color3.fromRGB(80, 40, 0)
+        notif.TextStrokeTransparency = 0.2
+        notif.BackgroundTransparency = 1
+        notif.Size = UDim2.new(0.7, 0, 0.12, 0)
+        notif.AnchorPoint = Vector2.new(0.5, 0.5)
+        notif.Position = UDim2.new(0.5, 0, 0.58, 0)
+        notif.ZIndex = 9
+        notif.Parent = screenGui
+        TweenService:Create(notif,
+            TweenInfo.new(1.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+            {Position = UDim2.new(0.5, 0, 0.38, 0),
+             TextTransparency = 1, TextStrokeTransparency = 1}):Play()
+        task.delay(1.6, function() if notif.Parent then notif:Destroy() end end)
+        -- 테두리 글로우
+        local oldBorder = screenGui:FindFirstChild("CarrotBorder")
+        if oldBorder then oldBorder:Destroy() end
+        local borderFrame = Instance.new("Frame")
+        borderFrame.Name = "CarrotBorder"
+        borderFrame.BackgroundTransparency = 1
+        borderFrame.Size = UDim2.new(1, 0, 1, 0)
+        borderFrame.ZIndex = 4
+        borderFrame.Parent = screenGui
+        local uiStroke = Instance.new("UIStroke")
+        uiStroke.Color = carrotFlashColor
+        uiStroke.Thickness = 12
+        uiStroke.Transparency = 0
+        uiStroke.Parent = borderFrame
+        task.delay(2, function()
+            if borderFrame.Parent then
+                TweenService:Create(uiStroke,
+                    TweenInfo.new(1, Enum.EasingStyle.Linear),
+                    {Transparency = 1}):Play()
+                task.delay(1.1, function()
+                    if borderFrame.Parent then borderFrame:Destroy() end
+                end)
+            end
+        end)
+    end
+end)
+
+-- 스테이지 시작 시각 (탈출 소요 시간 계산용)
+local stageStartedAt = 0
+
+local function stopElapsedTimer() end  -- 하위 호환용 (GameOver에서 호출됨)
+
+-- 관전 모드 전환 지연 스레드 (GameOver 시 취소용)
+local spectatorThread = nil
+
+-- 탈락 이벤트
+Events.PlayerEliminated.OnClientEvent:Connect(function()
+    eliminatedOverlay.Visible = true
+    eliminatedText.Text = "잡혔다!"
+    eliminatedText.TextSize = 72
+    eliminatedText.TextColor3 = Color3.fromRGB(255, 100, 100)
+    -- 3초 후 관전 텍스트로 변경 (GameOver가 오면 취소됨)
+    spectatorThread = task.delay(3, function()
+        spectatorThread = nil
+        if eliminatedOverlay.Visible then
+            eliminatedText.Text = "관전 중..."
+            eliminatedText.TextSize = 36
+            eliminatedText.TextColor3 = Color3.fromRGB(200, 200, 200)
+        end
+    end)
+end)
+
+-- 게임 오버 이벤트 — 랭킹 화면 표시
+Events.GameOver.OnClientEvent:Connect(function(data)
+    stopElapsedTimer()
+    if spectatorThread then
+        task.cancel(spectatorThread)
+        spectatorThread = nil
+    end
+
+    local allEscaped = data.allEscaped
+    local rankings   = data.rankings or {}
+
+    -- 배경 오버레이
+    eliminatedOverlay.Visible = true
+    eliminatedOverlay.BackgroundColor3 = Color3.fromRGB(10, 10, 20)
+    eliminatedOverlay.BackgroundTransparency = 0.25
+
+    -- 타이틀
+    if allEscaped then
+        eliminatedText.Text = "🎉 탈출 성공!"
+        eliminatedText.TextColor3 = Color3.fromRGB(100, 255, 160)
+    else
+        eliminatedText.Text = "😵 전원 탈출 실패 — 재도전!"
+        eliminatedText.TextColor3 = Color3.fromRGB(255, 100, 80)
+    end
+    eliminatedText.TextSize = 34
+    eliminatedText.Position = UDim2.new(0, 0, 0, 0)
+    eliminatedText.Size     = UDim2.new(1, 0, 0, 60)
+
+    -- 기존 랭킹 프레임 제거
+    local oldFrame = screenGui:FindFirstChild("RankingFrame")
+    if oldFrame then oldFrame:Destroy() end
+
+    -- 랭킹 프레임
+    local rowH    = 44
+    local padTop  = 8
+    local frameH  = padTop + #rankings * rowH + 10
+    local rankFrame = Instance.new("Frame")
+    rankFrame.Name              = "RankingFrame"
+    rankFrame.Size              = UDim2.new(0, 320, 0, frameH)
+    rankFrame.AnchorPoint       = Vector2.new(0.5, 0)
+    rankFrame.Position          = UDim2.new(0.5, 0, 0, 68)
+    rankFrame.BackgroundColor3  = Color3.fromRGB(255, 255, 255)
+    rankFrame.BackgroundTransparency = 0.12
+    rankFrame.BorderSizePixel   = 0
+    rankFrame.ZIndex            = 12
+    rankFrame.Parent            = screenGui
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 22)
+    corner.Parent = rankFrame
+
+    local medals = {"🥇", "🥈", "🥉", "4위", "5위", "6위", "7위", "8위"}
+
+    for i, info in ipairs(rankings) do
+        local row = Instance.new("TextLabel")
+        local medal = medals[info.rank] or (info.rank .. "위")
+        local failMark = info.escaped and "" or "  ❌ 실패"
+        row.Text = string.format("  %s  %s%s   +%d점",
+            medal, info.name, failMark, info.points)
+        row.Size               = UDim2.new(1, 0, 0, rowH)
+        row.Position           = UDim2.new(0, 0, 0, padTop + (i - 1) * rowH)
+        row.BackgroundTransparency = 1
+        row.Font               = Enum.Font.GothamBold
+        row.TextSize           = 20
+        row.TextXAlignment     = Enum.TextXAlignment.Left
+        row.TextColor3         = info.escaped
+            and Color3.fromRGB(30, 30, 30)
+            or  Color3.fromRGB(200, 60, 60)
+        row.ZIndex             = 13
+        row.Parent             = rankFrame
+
+        -- 내 플레이어 강조
+        if info.name == player.Name then
+            row.BackgroundTransparency = 0.6
+            row.BackgroundColor3 = Color3.fromRGB(255, 240, 150)
+        end
+    end
+
+    -- 재도전 / 다음 게임 버튼
+    isRematchReady = false
+    if allEscaped then
+        rematchBtn.Text             = "▶  다음 스테이지"
+        rematchBtn.BackgroundColor3 = Color3.fromRGB(80, 160, 255)
+    else
+        rematchBtn.Text             = "🔄  재도전"
+        rematchBtn.BackgroundColor3 = Color3.fromRGB(255, 140, 60)
+    end
+    rematchBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    rematchBtn.Position   = UDim2.new(0.5, 0, 0, 68 + frameH + 12)
+    rematchBtn.Visible    = true
+end)
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="LocalScript" referent="27">
+        <Properties>
+          <string name="Name">LobbyUI</string>
+          <string name="Source"><![CDATA[-- StarterPlayerScripts/LobbyUI
+-- 로비 대기 중 카피바라 색상 선택 + 준비 완료 UI
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local player = Players.LocalPlayer
+local Events = ReplicatedStorage.Events
+
+-- 선택 가능한 파스텔 색상
+local COLOR_OPTIONS = {
+    { name = "갈색", color = Color3.fromRGB(139, 90,  43)  },
+    { name = "크림", color = Color3.fromRGB(240, 220, 180) },
+    { name = "회색", color = Color3.fromRGB(180, 180, 180) },
+    { name = "분홍", color = Color3.fromRGB(255, 160, 180) },
+    { name = "하늘", color = Color3.fromRGB(120, 195, 235) },
+    { name = "민트", color = Color3.fromRGB(130, 220, 180) },
+}
+
+local selectedColor   = COLOR_OPTIONS[1].color
+local selectedCharType = "Mom"  -- 기본 캐릭터: 엄마
+local isReady = false
+
+-- ScreenGui
+local screenGui = Instance.new("ScreenGui")
+screenGui.ResetOnSpawn = false
+screenGui.Name = "LobbyUI"
+screenGui.Parent = player.PlayerGui
+
+-- 배경 프레임 (캐릭터 선택 영역 추가로 높이 확장)
+local bg = Instance.new("Frame")
+bg.Name = "LobbyBG"
+bg.Size = UDim2.new(0, 340, 0, 430)
+bg.AnchorPoint = Vector2.new(0.5, 0.5)
+bg.Position = UDim2.new(0.5, 0, 0.5, 0)
+bg.BackgroundColor3 = Color3.fromRGB(255, 245, 230)
+bg.BackgroundTransparency = 0.05
+bg.BorderSizePixel = 0
+bg.Parent = screenGui
+
+local bgCorner = Instance.new("UICorner")
+bgCorner.CornerRadius = UDim.new(0, 20)
+bgCorner.Parent = bg
+
+-- 제목
+local title = Instance.new("TextLabel")
+title.Text = "🐾 카피바라 색상 선택"
+title.Size = UDim2.new(1, 0, 0, 40)
+title.Position = UDim2.new(0, 0, 0, 12)
+title.BackgroundTransparency = 1
+title.Font = Enum.Font.GothamBold
+title.TextSize = 20
+title.TextColor3 = Color3.fromRGB(80, 60, 60)
+title.Parent = bg
+
+-- 색상 버튼 (2행 3열)
+local buttonSize = UDim2.new(0, 80, 0, 80)
+local positions = {
+    UDim2.new(0, 20,  0, 60),
+    UDim2.new(0, 130, 0, 60),
+    UDim2.new(0, 240, 0, 60),
+    UDim2.new(0, 20,  0, 155),
+    UDim2.new(0, 130, 0, 155),
+    UDim2.new(0, 240, 0, 155),
+}
+
+local buttons = {}
+
+for i, option in ipairs(COLOR_OPTIONS) do
+    local btn = Instance.new("TextButton")
+    btn.Size = buttonSize
+    btn.Position = positions[i]
+    btn.BackgroundColor3 = option.color
+    btn.Text = option.name
+    btn.TextColor3 = Color3.fromRGB(60, 40, 40)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 13
+    btn.BorderSizePixel = 0
+    btn.Parent = bg
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 12)
+    corner.Parent = btn
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Thickness = 0
+    stroke.Color = Color3.fromRGB(60, 40, 40)
+    stroke.Parent = btn
+
+    buttons[i] = { btn = btn, stroke = stroke, color = option.color }
+
+    btn.MouseButton1Click:Connect(function()
+        if isReady then return end  -- 준비 완료 후 색상 변경 불가
+        for _, b in ipairs(buttons) do
+            b.stroke.Thickness = 0
+        end
+        stroke.Thickness = 4
+        selectedColor = option.color
+        Events.ColorSelected:FireServer(selectedColor)
+    end)
+end
+
+-- 기본 선택: 갈색
+buttons[1].stroke.Thickness = 4
+Events.ColorSelected:FireServer(selectedColor)
+
+-- ── 캐릭터 타입 선택 ─────────────────────────────────────────────────────
+local CHAR_OPTIONS = {
+    { name = "아빠", emoji = "🐻", type = "Dad" },
+    { name = "엄마", emoji = "🌸", type = "Mom" },
+    { name = "아들", emoji = "🐿", type = "Son" },
+    { name = "딸",  emoji = "🎀", type = "Daughter" },
+}
+
+local charTitle = Instance.new("TextLabel")
+charTitle.Text = "🐾 캐릭터 선택"
+charTitle.Size = UDim2.new(1, 0, 0, 28)
+charTitle.Position = UDim2.new(0, 0, 0, 248)
+charTitle.BackgroundTransparency = 1
+charTitle.Font = Enum.Font.GothamBold
+charTitle.TextSize = 17
+charTitle.TextColor3 = Color3.fromRGB(80, 60, 60)
+charTitle.Parent = bg
+
+local charButtons = {}
+
+for i, opt in ipairs(CHAR_OPTIONS) do
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0, 68, 0, 68)
+    -- 4개를 가로로 배열 (20, 108, 196, 284)
+    btn.Position = UDim2.new(0, 20 + (i - 1) * 76, 0, 282)
+    btn.BackgroundColor3 = Color3.fromRGB(245, 235, 220)
+    btn.Text = opt.emoji .. "\n" .. opt.name
+    btn.TextColor3 = Color3.fromRGB(60, 40, 40)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 13
+    btn.BorderSizePixel = 0
+    btn.Parent = bg
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 12)
+    corner.Parent = btn
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Thickness = 0
+    stroke.Color = Color3.fromRGB(60, 40, 40)
+    stroke.Parent = btn
+
+    charButtons[i] = { btn = btn, stroke = stroke, type = opt.type }
+
+    btn.MouseButton1Click:Connect(function()
+        if isReady then return end
+        for _, b in ipairs(charButtons) do
+            b.stroke.Thickness = 0
+            b.btn.BackgroundColor3 = Color3.fromRGB(245, 235, 220)
+        end
+        stroke.Thickness = 4
+        btn.BackgroundColor3 = Color3.fromRGB(255, 245, 200)
+        selectedCharType = opt.type
+        Events.CharacterSelected:FireServer(selectedCharType)
+    end)
+end
+
+-- 기본 선택: 엄마 (index 2)
+charButtons[2].stroke.Thickness = 4
+charButtons[2].btn.BackgroundColor3 = Color3.fromRGB(255, 245, 200)
+Events.CharacterSelected:FireServer(selectedCharType)
+
+-- ── 선택 완료 버튼 ────────────────────────────────────────────────────────
+local confirmBtn = Instance.new("TextButton")
+confirmBtn.Name = "ConfirmButton"
+confirmBtn.Text = "✅  선택 완료"
+confirmBtn.Size = UDim2.new(1, -40, 0, 48)
+confirmBtn.Position = UDim2.new(0, 20, 0, 362)
+confirmBtn.BackgroundColor3 = Color3.fromRGB(130, 220, 160)
+confirmBtn.TextColor3 = Color3.fromRGB(40, 80, 50)
+confirmBtn.Font = Enum.Font.GothamBold
+confirmBtn.TextSize = 18
+confirmBtn.BorderSizePixel = 0
+confirmBtn.Parent = bg
+
+local confirmCorner = Instance.new("UICorner")
+confirmCorner.CornerRadius = UDim.new(0, 12)
+confirmCorner.Parent = confirmBtn
+
+-- 대기 안내 텍스트
+local waitText = Instance.new("TextLabel")
+waitText.Name = "WaitText"
+waitText.Text = ""
+waitText.Size = UDim2.new(1, -20, 0, 24)
+waitText.Position = UDim2.new(0, 10, 0, 414)
+waitText.BackgroundTransparency = 1
+waitText.Font = Enum.Font.Gotham
+waitText.TextSize = 14
+waitText.TextColor3 = Color3.fromRGB(150, 120, 100)
+waitText.Parent = bg
+
+-- 선택 완료 버튼 클릭
+confirmBtn.MouseButton1Click:Connect(function()
+    if isReady then return end
+    isReady = true
+    -- 버튼 비활성화 표시
+    confirmBtn.Text = "⏳  다른 플레이어 대기 중..."
+    confirmBtn.BackgroundColor3 = Color3.fromRGB(180, 180, 180)
+    confirmBtn.TextColor3 = Color3.fromRGB(100, 100, 100)
+    waitText.Text = "모든 플레이어가 준비되면 게임이 시작됩니다"
+    -- 서버에 준비 완료 전달
+    Events.ReadyUp:FireServer()
+end)
+
+-- 게임 시작 카운트다운 수신 (모두 준비 완료 후 5→1)
+Events.UpdateHUD.OnClientEvent:Connect(function(data)
+    if data.type == "lobbyCountdown" then
+        confirmBtn.Text = "🚀  " .. data.count .. "초 후 시작!"
+        confirmBtn.BackgroundColor3 = Color3.fromRGB(255, 200, 80)
+        confirmBtn.TextColor3 = Color3.fromRGB(100, 60, 0)
+        waitText.Text = "게임이 곧 시작됩니다..."
+        waitText.TextColor3 = Color3.fromRGB(200, 80, 40)
+    end
+end)
+
+-- 스테이지 시작 시 로비 UI 즉시 숨기기
+Events.StageStarted.OnClientEvent:Connect(function()
+    screenGui.Enabled = false
+    task.delay(1, function()
+        screenGui:Destroy()
+    end)
+end)
+]]></string>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+</roblox>

@@ -1,0 +1,13 @@
+{"type":"server-started","port":61054,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:61054","screen_dir":"/Users/m/Desktop/Project/CapybaraEscape/.superpowers/brainstorm/45818-1774764927"}
+{"type":"screen-added","file":"/Users/m/Desktop/Project/CapybaraEscape/.superpowers/brainstorm/45818-1774764927/graffiti-style.html"}
+{"source":"user-event","type":"click","text":"C — 자유 드로잉\n      마우스/터치로 벽에 직접 그림. 가장 자유롭지만 구현 복잡도 높음.","choice":"draw","id":null,"timestamp":1774764975752}
+{"source":"user-event","type":"click","text":"캐피바라 왔다감\n      ← 여기 함정 있음 😈\n    \n    \n      B — 짧은 텍스트 메시지\n      키보드로 짧은 글자를 입력해서 벽에 남김. 다른 플레이어에게 메시지 전달 가능.","choice":"text","id":null,"timestamp":1774764977296}
+{"source":"user-event","type":"click","text":"C — 자유 드로잉\n      마우스/터치로 벽에 직접 그림. 가장 자유롭지만 구현 복잡도 높음.","choice":"draw","id":null,"timestamp":1774765004041}
+{"source":"user-event","type":"click","text":"C — 자유 드로잉\n      마우스/터치로 벽에 직접 그림. 가장 자유롭지만 구현 복잡도 높음.","choice":"draw","id":null,"timestamp":1774765004791}
+{"source":"user-event","type":"click","text":"C — 자유 드로잉\n      마우스/터치로 벽에 직접 그림. 가장 자유롭지만 구현 복잡도 높음.","choice":"draw","id":null,"timestamp":1774765004971}
+{"type":"screen-added","file":"/Users/m/Desktop/Project/CapybaraEscape/.superpowers/brainstorm/45818-1774764927/waiting-1.html"}
+{"type":"screen-added","file":"/Users/m/Desktop/Project/CapybaraEscape/.superpowers/brainstorm/45818-1774764927/graffiti-ui.html"}
+{"type":"screen-added","file":"/Users/m/Desktop/Project/CapybaraEscape/.superpowers/brainstorm/45818-1774764927/waiting-2.html"}
+{"type":"screen-added","file":"/Users/m/Desktop/Project/CapybaraEscape/.superpowers/brainstorm/45818-1774764927/graffiti-design.html"}
+{"type":"screen-added","file":"/Users/m/Desktop/Project/CapybaraEscape/.superpowers/brainstorm/45818-1774764927/graffiti-design-v2.html"}
+{"type":"server-stopped","reason":"idle timeout"}

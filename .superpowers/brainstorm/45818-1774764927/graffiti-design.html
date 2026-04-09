@@ -1,0 +1,122 @@
+<h2>벽 낙서 기능 — 전체 설계</h2>
+<p class="subtitle">SurfaceGui 방식 / 검토 후 승인해주세요</p>
+
+<div class="section">
+  <div class="label">흐름</div>
+  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;font-size:0.85rem;">
+    <div style="background:#2d3436;border:1px solid #636e72;padding:6px 12px;border-radius:6px;">🎒 스프레이 캔<br><span style="font-size:0.7rem;color:#aaa;">시작 시 1개 지급</span></div>
+    <div style="color:#74b9ff;font-size:1.2rem;">→</div>
+    <div style="background:#2d3436;border:1px solid #636e72;padding:6px 12px;border-radius:6px;">⌨️ X 키 입력<br><span style="font-size:0.7rem;color:#aaa;">오버레이 캔버스 열림</span></div>
+    <div style="color:#74b9ff;font-size:1.2rem;">→</div>
+    <div style="background:#2d3436;border:1px solid #636e72;padding:6px 12px;border-radius:6px;">🖌️ 자유롭게 그리기<br><span style="font-size:0.7rem;color:#aaa;">색상 선택 + 드로잉</span></div>
+    <div style="color:#74b9ff;font-size:1.2rem;">→</div>
+    <div style="background:#2d3436;border:1px solid #636e72;padding:6px 12px;border-radius:6px;">✅ 완료 버튼<br><span style="font-size:0.7rem;color:#aaa;">서버로 스트로크 전송</span></div>
+    <div style="color:#74b9ff;font-size:1.2rem;">→</div>
+    <div style="background:#2d3436;border:1px solid #636e72;padding:6px 12px;border-radius:6px;">🧱 가장 가까운 벽에<br>SurfaceGui 부착</div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">캔버스 UI 목업</div>
+  <div class="mockup" style="max-width:420px;margin-top:8px;">
+    <div class="mockup-header">오버레이 캔버스 (X키 누를 시)</div>
+    <div class="mockup-body" style="background:#1a1a2e;position:relative;padding:0;overflow:hidden;">
+      <!-- 배경 게임 흐릿 -->
+      <div style="background:linear-gradient(180deg,#2d5a27,#8B7355);height:300px;filter:blur(3px);opacity:0.35;"></div>
+      <!-- 오버레이 -->
+      <div style="position:absolute;inset:0;display:flex;flex-direction:column;">
+        <!-- 상단 툴바 -->
+        <div style="background:rgba(0,0,0,0.85);padding:8px 14px;display:flex;align-items:center;gap:10px;border-bottom:1px solid #444;">
+          <span style="color:#fff;font-size:0.8rem;font-weight:bold;">🎨 낙서하기</span>
+          <span style="color:#888;font-size:0.7rem;flex:1;">가장 가까운 벽에 그려집니다</span>
+          <!-- 브러시 크기 -->
+          <div style="display:flex;gap:6px;align-items:center;">
+            <div style="width:6px;height:6px;border-radius:50%;background:#fff;opacity:0.6;"></div>
+            <div style="width:10px;height:10px;border-radius:50%;background:#fff;border:2px solid #74b9ff;"></div>
+            <div style="width:15px;height:15px;border-radius:50%;background:#fff;opacity:0.6;"></div>
+          </div>
+        </div>
+        <!-- 캔버스 영역 -->
+        <div style="flex:1;position:relative;cursor:crosshair;">
+          <!-- 예시 스트로크 -->
+          <svg width="100%" height="100%" style="position:absolute;inset:0;">
+            <path d="M60,120 Q100,60 150,100 Q200,140 240,80" stroke="#ff6b6b" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M80,180 Q120,160 160,175 Q180,182 200,170" stroke="#ffd93d" stroke-width="3" fill="none" stroke-linecap="round"/>
+            <path d="M270,130 Q290,100 310,130 Q290,160 270,130Z" stroke="#74b9ff" stroke-width="3" fill="none"/>
+          </svg>
+          <!-- 커서 표시 -->
+          <div style="position:absolute;top:38%;left:62%;width:16px;height:16px;transform:translate(-50%,-50%);">
+            <div style="position:absolute;top:7px;left:0;width:16px;height:2px;background:rgba(255,255,255,0.8);"></div>
+            <div style="position:absolute;left:7px;top:0;width:2px;height:16px;background:rgba(255,255,255,0.8);"></div>
+          </div>
+        </div>
+        <!-- 하단 팔레트 + 버튼 -->
+        <div style="background:rgba(0,0,0,0.85);padding:8px 14px;display:flex;align-items:center;gap:8px;border-top:1px solid #444;">
+          <div style="width:24px;height:24px;border-radius:50%;background:#ff6b6b;border:2px solid white;"></div>
+          <div style="width:24px;height:24px;border-radius:50%;background:#ffd93d;"></div>
+          <div style="width:24px;height:24px;border-radius:50%;background:#74b9ff;"></div>
+          <div style="width:24px;height:24px;border-radius:50%;background:#55efc4;"></div>
+          <div style="width:24px;height:24px;border-radius:50%;background:#fd79a8;"></div>
+          <div style="width:24px;height:24px;border-radius:50%;background:#dfe6e9;"></div>
+          <div style="flex:1;"></div>
+          <div style="padding:5px 10px;background:#636e72;color:#fff;font-size:0.75rem;border-radius:4px;">↩ 실행취소</div>
+          <div style="padding:5px 10px;background:#e17055;color:#fff;font-size:0.75rem;border-radius:4px;">✕ 취소</div>
+          <div style="padding:5px 12px;background:#00b894;color:#fff;font-size:0.75rem;border-radius:4px;font-weight:bold;">✓ 완료</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">구현 범위</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px;font-size:0.8rem;">
+    <div style="background:#2d3436;padding:10px 14px;border-radius:6px;border-left:3px solid #74b9ff;">
+      <div style="color:#74b9ff;font-weight:bold;margin-bottom:6px;">클라이언트 (ClientUI)</div>
+      <ul style="margin:0;padding-left:16px;color:#dfe6e9;line-height:1.8;">
+        <li>X키 → 오버레이 표시</li>
+        <li>마우스 드래그로 선 그리기</li>
+        <li>색상 6가지 / 브러시 3가지</li>
+        <li>실행취소 (마지막 선 삭제)</li>
+        <li>완료 시 → GraffitiPlaced 이벤트 전송</li>
+      </ul>
+    </div>
+    <div style="background:#2d3436;padding:10px 14px;border-radius:6px;border-left:3px solid #fd79a8;">
+      <div style="color:#fd79a8;font-weight:bold;margin-bottom:6px;">서버 (ItemManager)</div>
+      <ul style="margin:0;padding-left:16px;color:#dfe6e9;line-height:1.8;">
+        <li>스프레이 캔 인벤토리 관리</li>
+        <li>가장 가까운 벽 파트 탐색</li>
+        <li>SurfaceGui 생성 + 스트로크 렌더</li>
+        <li>mazeFolder 하위에 등록 → 스테이지 종료 시 자동 삭제</li>
+        <li>모든 클라이언트에 낙서 동기화</li>
+      </ul>
+    </div>
+    <div style="background:#2d3436;padding:10px 14px;border-radius:6px;border-left:3px solid #ffd93d;">
+      <div style="color:#ffd93d;font-weight:bold;margin-bottom:6px;">데이터 (스트로크 포맷)</div>
+      <ul style="margin:0;padding-left:16px;color:#dfe6e9;line-height:1.8;">
+        <li>각 스트로크: 색상 + 굵기 + 포인트 배열</li>
+        <li>포인트는 0~1 정규화 좌표</li>
+        <li>스트로크 최대 20개 제한</li>
+        <li>포인트 간격 최소화로 데이터 경량화</li>
+      </ul>
+    </div>
+    <div style="background:#2d3436;padding:10px 14px;border-radius:6px;border-left:3px solid #55efc4;">
+      <div style="color:#55efc4;font-weight:bold;margin-bottom:6px;">신규 파일/변경</div>
+      <ul style="margin:0;padding-left:16px;color:#dfe6e9;line-height:1.8;">
+        <li>Constants: SPRAY_COUNT = 1 추가</li>
+        <li>PlayerManager: 스프레이 인벤토리</li>
+        <li>ItemManager: placeGraffiti() 추가</li>
+        <li>GameManager: GraffitiPlaced 이벤트 연결</li>
+        <li>ClientUI: X키 + 드로잉 UI 추가</li>
+        <li>ReplicatedStorage/Events: GraffitiPlaced</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">범위 밖 (이번에 안 함)</div>
+  <div style="font-size:0.8rem;color:#888;margin-top:6px;">
+    지우개 기능 · 낙서 위에 낙서 겹치기 제한 · 욕설 필터 · 낙서 신고 기능
+  </div>
+</div>

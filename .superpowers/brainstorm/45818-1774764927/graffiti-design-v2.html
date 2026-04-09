@@ -1,0 +1,119 @@
+<h2>벽 낙서 기능 — 설계 v2</h2>
+<p class="subtitle">추가 조건 반영 버전 · 승인해주세요</p>
+
+<div class="section">
+  <div class="label">흐름</div>
+  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;font-size:0.82rem;">
+    <div style="background:#2d3436;border:1px solid #636e72;padding:6px 12px;border-radius:6px;text-align:center;">🎒 스프레이 캔<br><span style="font-size:0.7rem;color:#aaa;">시작 시 1개 지급</span></div>
+    <div style="color:#74b9ff;font-size:1.2rem;">→</div>
+    <div style="background:#2d3436;border:1px solid #e17055;padding:6px 12px;border-radius:6px;text-align:center;">📏 벽과의 거리 체크<br><span style="font-size:0.7rem;color:#e17055;">3 studs 이내여야 활성화</span></div>
+    <div style="color:#74b9ff;font-size:1.2rem;">→</div>
+    <div style="background:#2d3436;border:1px solid #636e72;padding:6px 12px;border-radius:6px;text-align:center;">⌨️ X 키 입력<br><span style="font-size:0.7rem;color:#aaa;">오버레이 캔버스 열림</span></div>
+    <div style="color:#74b9ff;font-size:1.2rem;">→</div>
+    <div style="background:#2d3436;border:1px solid #636e72;padding:6px 12px;border-radius:6px;text-align:center;">🖌️ 자유 드로잉<br><span style="font-size:0.7rem;color:#aaa;">완료 버튼 클릭</span></div>
+    <div style="color:#74b9ff;font-size:1.2rem;">→</div>
+    <div style="background:#2d3436;border:1px solid #636e72;padding:6px 12px;border-radius:6px;text-align:center;">🧱 벽에 SurfaceGui<br><span style="font-size:0.7rem;color:#aaa;">모두에게 보임 (수정 불가)</span></div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">1. 벽 근접 조건</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px;">
+
+    <div style="background:#2d3436;padding:12px;border-radius:6px;border-left:3px solid #e17055;">
+      <div style="color:#e17055;font-weight:bold;font-size:0.82rem;margin-bottom:8px;">🚫 멀리 있을 때</div>
+      <div style="background:#1a1a1a;border-radius:4px;padding:8px;font-size:0.75rem;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+          <span style="color:#888;">HUD 스프레이 버튼</span>
+        </div>
+        <div style="background:#444;border-radius:4px;padding:5px 10px;text-align:center;color:#888;font-size:0.8rem;opacity:0.6;">
+          🎨 낙서 [X] <span style="font-size:0.65rem;">(벽에 가까이 가세요)</span>
+        </div>
+        <div style="margin-top:6px;color:#666;font-size:0.7rem;">버튼 비활성화 + 안내 툴팁</div>
+      </div>
+    </div>
+
+    <div style="background:#2d3436;padding:12px;border-radius:6px;border-left:3px solid #55efc4;">
+      <div style="color:#55efc4;font-weight:bold;font-size:0.82rem;margin-bottom:8px;">✅ 3 studs 이내일 때</div>
+      <div style="background:#1a1a1a;border-radius:4px;padding:8px;font-size:0.75rem;">
+        <div style="background:#2d3436;border:1px solid #55efc4;border-radius:4px;padding:5px 10px;text-align:center;color:#55efc4;font-size:0.8rem;">
+          🎨 낙서 [X]
+        </div>
+        <div style="margin-top:6px;color:#888;font-size:0.7rem;">버튼 활성화 · X키 입력 가능</div>
+        <div style="margin-top:4px;color:#888;font-size:0.7rem;">클라이언트에서 매 프레임 거리 체크</div>
+      </div>
+    </div>
+
+  </div>
+  <div style="margin-top:8px;font-size:0.78rem;color:#888;">
+    → 거리 체크는 <strong style="color:#ddd;">클라이언트</strong>에서 Heartbeat로 주기적으로 실행 (UI 반응성) + <strong style="color:#ddd;">서버</strong>에서도 GraffitiPlaced 수신 시 재검증 (보안)
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">2. 작성자 vs 다른 플레이어</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px;">
+
+    <div style="background:#2d3436;padding:12px;border-radius:6px;border-left:3px solid #74b9ff;">
+      <div style="color:#74b9ff;font-weight:bold;font-size:0.82rem;margin-bottom:8px;">✍️ 작성자 본인</div>
+      <ul style="margin:0;padding-left:16px;color:#dfe6e9;font-size:0.78rem;line-height:1.9;">
+        <li>X키로 캔버스 열기 가능</li>
+        <li>스프레이 캔 소모 (1회)</li>
+        <li>본인 낙서 위에 덮어쓰기 불가<br><span style="color:#888;font-size:0.7rem;">(이미 그린 벽엔 재사용 불가)</span></li>
+      </ul>
+    </div>
+
+    <div style="background:#2d3436;padding:12px;border-radius:6px;border-left:3px solid #fd79a8;">
+      <div style="color:#fd79a8;font-weight:bold;font-size:0.82rem;margin-bottom:8px;">👀 다른 플레이어</div>
+      <ul style="margin:0;padding-left:16px;color:#dfe6e9;font-size:0.78rem;line-height:1.9;">
+        <li>SurfaceGui가 보임 (읽기 전용)</li>
+        <li>상호작용 불가 (클릭해도 무반응)</li>
+        <li>작성자 닉네임 작게 표시<br><span style="color:#888;font-size:0.7rem;">(낙서 하단 코너에 서명)</span></li>
+      </ul>
+    </div>
+
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">구현 변경 목록</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px;font-size:0.78rem;">
+    <div style="background:#1e272e;padding:10px;border-radius:6px;">
+      <div style="color:#ffd93d;margin-bottom:4px;font-weight:bold;">ClientUI.client.lua</div>
+      <ul style="margin:0;padding-left:14px;color:#b2bec3;line-height:1.8;">
+        <li>RunService.Heartbeat로 벽 근접 체크</li>
+        <li>sprayButton 활성/비활성 토글</li>
+        <li>X키 → 오버레이 캔버스</li>
+        <li>마우스 드래그 스트로크 드로잉</li>
+        <li>완료 시 GraffitiPlaced 이벤트 전송</li>
+      </ul>
+    </div>
+    <div style="background:#1e272e;padding:10px;border-radius:6px;">
+      <div style="color:#fd79a8;margin-bottom:4px;font-weight:bold;">ItemManager.lua</div>
+      <ul style="margin:0;padding-left:14px;color:#b2bec3;line-height:1.8;">
+        <li>placeGraffiti(player, strokes, mazeFolder)</li>
+        <li>Raycast로 가장 가까운 벽 탐색</li>
+        <li>SurfaceGui 생성 + 스트로크 Frame 렌더</li>
+        <li>서버측 거리 재검증 (3 studs)</li>
+        <li>작성자 서명 레이블 추가</li>
+      </ul>
+    </div>
+    <div style="background:#1e272e;padding:10px;border-radius:6px;">
+      <div style="color:#74b9ff;margin-bottom:4px;font-weight:bold;">Constants / PlayerManager</div>
+      <ul style="margin:0;padding-left:14px;color:#b2bec3;line-height:1.8;">
+        <li>SPRAY_COUNT = 1</li>
+        <li>GRAFFITI_RANGE = 3 (studs)</li>
+        <li>sprayTable 인벤토리 추가</li>
+        <li>addSpray / consumeSpray / getSprayCount</li>
+      </ul>
+    </div>
+    <div style="background:#1e272e;padding:10px;border-radius:6px;">
+      <div style="color:#55efc4;margin-bottom:4px;font-weight:bold;">GameManager / Events</div>
+      <ul style="margin:0;padding-left:14px;color:#b2bec3;line-height:1.8;">
+        <li>GraffitiPlaced RemoteEvent 추가</li>
+        <li>OnServerEvent → ItemManager.placeGraffiti</li>
+        <li>스테이지 종료 시 mazeFolder 파괴로 자동 정리</li>
+      </ul>
+    </div>
+  </div>
+</div>
