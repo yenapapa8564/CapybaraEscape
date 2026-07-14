@@ -19,8 +19,9 @@ local BGM_VOLUME    = 0.45   -- 기본 볼륨
 local DETECT_RADIUS = 40     -- 긴박 전환 거리 (studs)
 local FADE_TIME     = 1.5    -- 크로스페이드 시간 (초)
 
--- Sound 오브젝트 생성
+-- Sound 오브젝트 생성 (ID = 0 이면 nil 반환 → 에러 방지)
 local function makeSound(id)
+    if not id or id == 0 then return nil end
     local s = Instance.new("Sound")
     s.SoundId  = "rbxassetid://" .. id
     s.Volume   = 0
@@ -34,6 +35,7 @@ local peacefulSound = makeSound(PEACEFUL_ID)
 local tenseSound    = makeSound(TENSE_ID)
 
 local function fade(sound, toVolume)
+    if not sound then return end
     TweenService:Create(
         sound,
         TweenInfo.new(FADE_TIME, Enum.EasingStyle.Sine),
@@ -47,18 +49,18 @@ local function setMode(mode)
     if currentMode == mode then return end
     currentMode = mode
     if mode == "peaceful" then
-        if not peacefulSound.IsPlaying then peacefulSound:Play() end
+        if peacefulSound and not peacefulSound.IsPlaying then peacefulSound:Play() end
         fade(peacefulSound, BGM_VOLUME)
         fade(tenseSound, 0)
     else  -- "tense"
-        if not tenseSound.IsPlaying then tenseSound:Play() end
+        if tenseSound and not tenseSound.IsPlaying then tenseSound:Play() end
         fade(tenseSound, BGM_VOLUME)
         fade(peacefulSound, 0)
     end
 end
 
--- 시작: 평화로운 BGM
-peacefulSound:Play()
+-- 시작: 평화로운 BGM (사운드 ID가 설정된 경우만)
+if peacefulSound then peacefulSound:Play() end
 setMode("peaceful")
 
 -- ── 헌터 발견 상태 추적 ───────────────────────────

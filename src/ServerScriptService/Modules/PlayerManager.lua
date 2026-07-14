@@ -155,53 +155,95 @@ function PlayerManager.applyCharType(player)
     local charType = playerCharTypes[player] or "Mom"
     local char = player.Character
     if not char then return end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
+
+    local humanoid = char:FindFirstChildWhichIsA("Humanoid")
+    if not humanoid then return end
 
     -- 기존 악세서리 제거
     for _, child in ipairs(char:GetChildren()) do
-        if child.Name == "CharAccessory" then child:Destroy() end
+        if child.Name == "CharAccessory" or child:IsA("Accessory") then
+            child:Destroy()
+        end
     end
 
     -- 아이 캐릭터는 50% 크기
     local isChild = (charType == "Son" or charType == "Daughter")
-    local s = isChild and 0.5 or 1.0   -- 스케일 배율
-
     if isChild then
         applyBodyScale(char, 0.5)
     end
 
-    -- HRP 기준 악세서리 위치 (스케일 반영)
-    local HY =  1.8 * s   -- 위쪽
-    local HZ = -2.2 * s   -- 앞쪽
+    -- ── 악세서리 부착: Head에 직접 Weld ──────────────────────────────────────
+    -- Attachment 불필요, 커스텀 Model에서도 동작
+    local folder = ReplicatedStorage:FindFirstChild("Accessories")
+    if not folder then
+        warn("[PlayerManager] ReplicatedStorage.Accessories 폴더 없음")
+    else
+        local nameMap = {
+            Dad      = "DadHelmet",
+            Mom      = "MomHat",
+            Son      = "SonCap",
+            Daughter = "DaughterRibbon",
+        }
+        local accName = nameMap[charType]
+        local template = accName and folder:FindFirstChild(accName)
+        if not template then
+            warn("[PlayerManager] Accessory 없음:", tostring(accName))
+        else
+            local acc = template:Clone()
+            acc.Name   = "CharAccessory"
+            acc.Parent = char
 
-    if charType == "Dad" then
-        -- ⛑️ 안전모: 머리 위 (앞쪽 -Z, 위쪽 +Y)
-        attachModelAccessory(char, hrp, "DadHelmet",
-            CFrame.new(0, HY + 0.5, HZ + 1.0), 1.0)
+            -- 모든 BasePart 수집 + 물리 설정
+            local parts = {}
+            for _, d in ipairs(acc:GetDescendants()) do
+                if d:IsA("BasePart") then
+                    d.Anchored   = false
+                    d.CanCollide = false
+                    d.Massless   = true
+                    table.insert(parts, d)
+                end
+            end
 
-    elseif charType == "Mom" then
-        -- 👒 챙모자: 머리 위 (얼굴 덮지 않게 뒤로 + 위로)
-        attachModelAccessory(char, hrp, "MomHat",
-            CFrame.new(0, HY + 0.8, HZ + 1.5), 1.0)
+            if #parts > 0 then
+                -- 루트 파트 결정
+                local root = acc.PrimaryPart
+                    or acc:FindFirstChild("Handle")
+                    or parts[1]
 
-    elseif charType == "Son" then
-        -- 🛡️ 방패: ReplicatedStorage.Accessories.SonCap 모델 사용 (등 뒤)
-        attachModelAccessory(char, hrp, "SonCap",
-            CFrame.new(0, 0, 2.0) * CFrame.Angles(math.rad(90), 0, 0), s)
+                -- 앵커 파트: Head 우선, 없으면 HumanoidRootPart
+                local head   = char:FindFirstChild("Head")
+                local anchor = head or char:FindFirstChild("HumanoidRootPart")
 
-    elseif charType == "Daughter" then
-        -- 🎀 리본: ReplicatedStorage.Accessories.DaughterRibbon 모델 사용 (머리 위)
-        attachModelAccessory(char, hrp, "DaughterRibbon",
-            CFrame.new(0, HY, HZ), s)
+                if anchor then
+                    -- 머리 위쪽 (Head 높이 절반 + 여유 0.1) 에 위치
+                    local upOffset = head and (head.Size.Y / 2 + 0.1) or 2.0
+
+                    local w0 = Instance.new("Weld")
+                    w0.Part0  = anchor
+                    w0.Part1  = root
+                    w0.C0     = CFrame.new(0, upOffset, 0)
+                    w0.C1     = CFrame.identity
+                    w0.Parent = anchor
+
+                    -- 나머지 파트 → root에 용접 (원래 상대 위치 유지)
+                    for _, p in ipairs(parts) do
+                        if p ~= root then
+                            local w2 = Instance.new("Weld")
+                            w2.Part0  = root
+                            w2.Part1  = p
+                            w2.C0     = root.CFrame:ToObjectSpace(p.CFrame)
+                            w2.C1     = CFrame.identity
+                            w2.Parent = root
+                        end
+                    end
+                end
+            end
+        end
     end
 
-    -- ── 아이 공통 능력: 이동속도 +20% ────────────────────────────────────────
+    -- ── 아이 공통 능력: 이동속도 +20% ──────────────────────────────────────
     if isChild then
-        local humanoid = char:FindFirstChild("Humanoid")
-        if humanoid then
-            humanoid.WalkSpeed = Constants.PLAYER_BASE_SPEED * 1.2
-        end
+        humanoid.WalkSpeed = Constants.PLAYER_BASE_SPEED * 1.2
     end
 end
 

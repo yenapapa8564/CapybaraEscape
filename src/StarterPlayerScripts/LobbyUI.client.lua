@@ -6,6 +6,31 @@ local TweenService      = game:GetService("TweenService")
 local player = Players.LocalPlayer
 local Events = ReplicatedStorage.Events
 
+-- ── [최우선] StageStarted 수신 즉시 LobbyUI 강제 제거 ─────────────────────
+-- 스크립트 최상단에서 연결 → 하단 코드 오류와 무관하게 항상 작동
+Events.StageStarted.OnClientEvent:Connect(function()
+    player.PlayerGui:SetAttribute("GameStarted", true)
+    -- 변수 참조 없이 PlayerGui에서 직접 탐색·제거
+    for _, g in ipairs(player.PlayerGui:GetChildren()) do
+        if g.Name == "LobbyUI" and g:IsA("ScreenGui") then
+            pcall(function() g.Enabled = false end)
+            pcall(function() g:Destroy() end)
+        end
+    end
+end)
+
+-- 게임 이미 시작됐으면 로비 UI 표시 안 함
+if player.PlayerGui:GetAttribute("GameStarted") then
+    return
+end
+
+-- 혹시 남아있는 이전 LobbyUI ScreenGui 제거
+for _, g in ipairs(player.PlayerGui:GetChildren()) do
+    if g.Name == "LobbyUI" and g:IsA("ScreenGui") then
+        pcall(function() g:Destroy() end)
+    end
+end
+
 -- ── 캐릭터 데이터 ─────────────────────────────────────────────────────────────
 -- 부모/아이 공통 능력
 local PARENT_STATS = { { label = "속도", color = Color3.fromRGB(80, 160, 240), value = 0.55 },
@@ -17,7 +42,7 @@ local CHAR_OPTIONS = {
     {
         name    = "아빠",
         type    = "Dad",
-        image   = "rbxassetid://105074816410243",
+        image   = "rbxassetid://112203546616984",
         color   = Color3.fromRGB(72, 108, 196),
         tagline = "든든한 발판",
         ability = "아이템 효과 2배  |  탑승 시 속도 유지",
@@ -27,7 +52,7 @@ local CHAR_OPTIONS = {
     {
         name    = "엄마",
         type    = "Mom",
-        image   = "rbxassetid://85018450386389",
+        image   = "rbxassetid://93555849224756",
         color   = Color3.fromRGB(196, 88, 148),
         tagline = "가족의 중심",
         ability = "아이템 효과 2배  |  탑승 시 속도 유지",
@@ -37,7 +62,7 @@ local CHAR_OPTIONS = {
     {
         name    = "아들",
         type    = "Son",
-        image   = "rbxassetid://119075418626992",
+        image   = "rbxassetid://112135243652796",
         color   = Color3.fromRGB(60, 172, 96),
         tagline = "빠른 정찰대",
         ability = "이동속도 +20%  |  열쇠 감지 +40%",
@@ -47,7 +72,7 @@ local CHAR_OPTIONS = {
     {
         name    = "딸",
         type    = "Daughter",
-        image   = "rbxassetid://77387992913413",
+        image   = "rbxassetid://129905343630830",
         color   = Color3.fromRGB(220, 140, 50),
         tagline = "지름길을 찾는 눈",
         ability = "이동속도 +20%  |  열쇠 감지 +40%",
@@ -72,7 +97,7 @@ local isReady          = false
 
 -- ── ScreenGui ──────────────────────────────────────────────────────────────
 local screenGui = Instance.new("ScreenGui")
-screenGui.ResetOnSpawn = false
+screenGui.ResetOnSpawn = true   -- 캐릭터 리스폰 시 자동 삭제 (previewScreen 잔류 방지)
 screenGui.Name         = "LobbyUI"
 screenGui.Parent       = player.PlayerGui
 
@@ -314,18 +339,20 @@ local function buildViewport(vp, charData, onDone)
             end
         end
 
-        -- ── 카메라: 악세사리 포함 전체 바운딩박스 기준 ──────────────────────
-        -- 악세사리를 배치한 뒤 WorldModel 전체 크기로 카메라 거리 결정
+        -- ── 카메라: 전체 바운딩박스가 뷰포트에 딱 맞도록 자동 계산 ───────────
         local fullBBCF, fullBBSize = wm:GetBoundingBox()
-        local fullCenterY = fullBBCF.Position.Y
-        local fullH = math.max(fullBBSize.X, fullBBSize.Y, fullBBSize.Z)
-        -- 카메라를 중심보다 약간 낮게, lookAt은 약간 위로 → 모자 잘림 방지
-        local lookAt = Vector3.new(0, fullCenterY + fullBBSize.Y * 0.1, 0)
-        local camPos = Vector3.new(0, fullCenterY - fullBBSize.Y * 0.05, -fullH * 3.5)
+        local center = fullBBCF.Position
+        local FOV     = 50
+        local halfRad = math.rad(FOV / 2)
+        -- 세로 높이 기준으로 거리 계산 (여백 20% 추가)
+        local dist = (fullBBSize.Y / 2) / math.tan(halfRad) * 1.2
 
         local cam = Instance.new("Camera")
-        cam.FieldOfView = 30
-        cam.CFrame      = CFrame.new(camPos, lookAt)
+        cam.FieldOfView = FOV
+        cam.CFrame      = CFrame.new(
+            Vector3.new(center.X, center.Y, center.Z - dist),
+            center
+        )
         cam.Parent       = vp
         vp.CurrentCamera = cam
 
@@ -353,6 +380,9 @@ local function selectChar(idx)
         b.vpFrame.BackgroundColor3 = on
             and Color3.new(opt.color.R*0.18, opt.color.G*0.18, opt.color.B*0.18)
             or  Color3.fromRGB(20, 20, 26)
+        b.vpFrame.ImageColor3 = on
+            and Color3.new(1, 1, 1)
+            or  Color3.new(0.75, 0.75, 0.75)
     end
 
     -- 설명 패널 갱신
@@ -387,7 +417,7 @@ for i, opt in ipairs(CHAR_OPTIONS) do
     stroke.Color     = C_BORDER
     stroke.Thickness = 1.5
 
-    -- ImageLabel (캐릭터 이미지)
+    -- ImageLabel (크레파스 캐릭터 이미지)
     local vp = Instance.new("ImageLabel")
     vp.Size                  = UDim2.new(1, 0, 0, CARD_VP_H)
     vp.Position              = UDim2.new(0, 0, 0, 0)
@@ -396,6 +426,7 @@ for i, opt in ipairs(CHAR_OPTIONS) do
     vp.BorderSizePixel       = 0
     vp.Image                 = opt.image
     vp.ScaleType             = Enum.ScaleType.Fit
+    vp.ImageColor3           = Color3.new(1, 1, 1)
     vp.ZIndex                = 4
     vp.Parent                = card
     Instance.new("UICorner", vp).CornerRadius = UDim.new(0, 12)
@@ -469,8 +500,9 @@ descImg.Position              = UDim2.new(0, 8, 0, 8)
 descImg.BackgroundColor3      = Color3.fromRGB(18, 18, 24)
 descImg.BackgroundTransparency = 0
 descImg.BorderSizePixel       = 0
-descImg.Image                 = CHAR_OPTIONS[1].image
+descImg.Image                 = ""
 descImg.ScaleType             = Enum.ScaleType.Fit
+descImg.ImageColor3           = Color3.new(1, 1, 1)
 descImg.ZIndex                = 4
 descImg.Parent                = descFrame
 Instance.new("UICorner", descImg).CornerRadius = UDim.new(0, 8)
@@ -788,6 +820,22 @@ end
 -- ══════════════════════════════════════════════════════════════════════════
 --  이벤트
 -- ══════════════════════════════════════════════════════════════════════════
+
+-- dismissUI는 UpdateHUD 핸들러보다 반드시 먼저 선언되어야 함 (Lua 스코프 규칙)
+local function dismissUI()
+    -- 게임 시작 상태를 어트리뷰트로 기록
+    player.PlayerGui:SetAttribute("GameStarted", true)
+    -- 회전 스레드 취소
+    if rotateThread then pcall(task.cancel, rotateThread); rotateThread = nil end
+    -- PlayerGui에서 직접 LobbyUI 검색 후 즉시 제거 (변수 참조 없이 안전하게)
+    for _, g in ipairs(player.PlayerGui:GetChildren()) do
+        if g.Name == "LobbyUI" and g:IsA("ScreenGui") then
+            pcall(function() g.Enabled = false end)
+            pcall(function() g:Destroy() end)
+        end
+    end
+end
+
 confirmBtn.MouseButton1Click:Connect(function()
     if isReady then return end
     isReady = true
@@ -799,12 +847,31 @@ Events.UpdateHUD.OnClientEvent:Connect(function(data)
     if data.type == "lobbyCountdown" then
         psWaiting.Text      = "🎮  " .. data.count .. "초 후 게임 시작!"
         psWaiting.TextColor3 = Color3.fromRGB(255, 210, 50)
+    elseif data.type == "dismissLobby" then
+        -- 서버가 직접 로비 닫기를 지시
+        dismissUI()
     end
 end)
 
-Events.StageStarted.OnClientEvent:Connect(function()
-    if rotateThread then task.cancel(rotateThread) end
-    screenGui.Enabled = false
-    task.delay(1, function() screenGui:Destroy() end)
+Events.StageStarted.OnClientEvent:Connect(dismissUI)
+
+-- ── 폴백: workspace.Maze에 벽이 추가되면 게임 시작으로 간주 → 로비 닫기 ──
+-- 이벤트 수신 실패 대비 최후 보루
+task.spawn(function()
+    local mazeFolder = workspace:FindFirstChild("Maze")
+    if not mazeFolder then
+        mazeFolder = workspace:WaitForChild("Maze", 60)
+    end
+    if not mazeFolder then return end
+    local conn
+    conn = mazeFolder.ChildAdded:Connect(function()
+        -- 준비 완료를 눌렀고 아직 게임 시작 처리가 안 됐을 때만 닫기
+        if isReady and not player.PlayerGui:GetAttribute("GameStarted") then
+            conn:Disconnect()
+            dismissUI()
+        elseif player.PlayerGui:GetAttribute("GameStarted") then
+            conn:Disconnect()
+        end
+    end)
 end)
 

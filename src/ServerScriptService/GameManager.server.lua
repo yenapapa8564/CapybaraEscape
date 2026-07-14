@@ -196,7 +196,8 @@ local function runStage(stage, playerList)
         ItemManager.placeGraffiti(player, data, mazeFolder)
     end)
 
-    -- 11. 층 시작 알림 (타이머 없음)
+    -- 11. 로비 UI 닫기 신호 + 층 시작 알림
+    broadcastHUD({ type = "dismissLobby" })
     Events.StageStarted:FireAllClients({
         stage      = stage,  -- 하위 호환
         floor      = stage,

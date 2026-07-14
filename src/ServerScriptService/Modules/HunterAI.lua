@@ -382,22 +382,81 @@ function HunterAI.stun()
 end
 
 -- ── 경로 추적 ─────────────────────────────────────────────────────────────
--- 벽에 막혔을 때 헌터를 약간 밀어내는 헬퍼
+-- 벽에 막혔을 때 헌터를 탈출시키는 헬퍼 (점점 넓은 반경 + 순찰 포인트 폴백)
 local function nudgeOutOfWall(root)
-    local offsets = {
-        Vector3.new( 4, 0,  0), Vector3.new(-4, 0,  0),
-        Vector3.new( 0, 0,  4), Vector3.new( 0, 0, -4),
-        Vector3.new( 3, 0,  3), Vector3.new(-3, 0, -3),
+    local directions = {
+        Vector3.new( 1, 0,  0), Vector3.new(-1, 0,  0),
+        Vector3.new( 0, 0,  1), Vector3.new( 0, 0, -1),
+        Vector3.new( 1, 0,  1).Unit, Vector3.new(-1, 0,  1).Unit,
+        Vector3.new( 1, 0, -1).Unit, Vector3.new(-1, 0, -1).Unit,
     }
-    for _, offset in ipairs(offsets) do
-        local testPos = root.Position + offset
-        local ray = workspace:Raycast(testPos + Vector3.new(0,3,0), Vector3.new(0,-6,0))
-        if ray then
-            root.CFrame = CFrame.new(testPos.X, ray.Position.Y + 2.5, testPos.Z)
-            return
+    -- 반경을 점점 늘려가며 탈출 위치 탐색
+    for _, radius in ipairs({ 4, 7, 11, 16 }) do
+        for _, dir in ipairs(directions) do
+            local testPos = root.Position + dir * radius
+            local floorRay = workspace:Raycast(
+                testPos + Vector3.new(0, 5, 0),
+                Vector3.new(0, -10, 0)
+            )
+            if floorRay then
+                local safePos = Vector3.new(testPos.X, floorRay.Position.Y + 2.5, testPos.Z)
+                -- 해당 위치 사방이 열려 있는지 확인
+                local blocked = false
+                for _, cd in ipairs({ Vector3.new(1,0,0), Vector3.new(-1,0,0),
+                                       Vector3.new(0,0,1), Vector3.new(0,0,-1) }) do
+                    if workspace:Raycast(safePos, cd * 1.8) then
+                        blocked = true; break
+                    end
+                end
+                if not blocked then
+                    root.CFrame = CFrame.new(safePos)
+                    return true
+                end
+            end
         end
     end
+    -- 모든 방향 실패 → 순찰 포인트 중 무작위 1개로 텔레포트
+    if #patrolPoints > 0 then
+        local pt = patrolPoints[math.random(1, #patrolPoints)]
+        local ray = workspace:Raycast(pt + Vector3.new(0, 10, 0), Vector3.new(0, -15, 0))
+        local safeY = ray and (ray.Position.Y + 2.5) or (pt.Y + 2.5)
+        root.CFrame = CFrame.new(pt.X, safeY, pt.Z)
+        return true
+    end
+    return false
 end
+
+-- ── 고착 감시 워치독 ──────────────────────────────────────────────────────
+-- 메인 AI와 독립적으로 2초마다 위치를 체크해 장시간 고착을 탈출시킴
+local stuckWatchdog = nil
+
+local function startStuckWatchdog()
+    if stuckWatchdog then pcall(task.cancel, stuckWatchdog) end
+    stuckWatchdog = task.spawn(function()
+        local lastPos   = nil
+        local stuckTick = 0   -- 연속 고착 횟수
+        while hunterModel and hunterModel.Parent do
+            task.wait(2)
+            if isStunned then lastPos = nil; stuckTick = 0; continue end
+            local root = hunterModel and hunterModel.PrimaryPart
+            if not root then continue end
+            local cur = root.Position
+            if lastPos and (cur - lastPos).Magnitude < 1.5 then
+                stuckTick += 1
+                if stuckTick >= 2 then   -- 4초 이상 거의 미이동 → 탈출
+                    nudgeOutOfWall(root)
+                    stuckTick = 0
+                    lastPos = nil
+                end
+            else
+                stuckTick = 0
+                lastPos = cur
+            end
+        end
+    end)
+end
+
+local consecutiveStuck = 0   -- 연속 고착 횟수 (followPath 전역 카운터)
 
 local function followPath(targetPos, maxWP)
     if not hunterModel or isStunned then return end
@@ -407,7 +466,7 @@ local function followPath(targetPos, maxWP)
 
     local path = PathfindingService:CreatePath({
         AgentHeight   = 5,
-        AgentRadius   = 1.0,  -- 반경 줄여서 좁은 통로 통과율 향상
+        AgentRadius   = 1.0,
         AgentCanJump  = false,
         Costs         = { Water = 20 },
     })
@@ -415,8 +474,13 @@ local function followPath(targetPos, maxWP)
         path:ComputeAsync(root.Position, targetPos)
     end)
     if not ok or path.Status ~= Enum.PathStatus.Success then
-        -- 경로 실패 시 직선 이동 대신 잠시 대기 후 재시도 유도
         task.wait(0.4)
+        -- 경로 계산 연속 실패 시 위치 보정
+        consecutiveStuck += 1
+        if consecutiveStuck >= 3 then
+            nudgeOutOfWall(root)
+            consecutiveStuck = 0
+        end
         return
     end
 
@@ -440,10 +504,27 @@ local function followPath(targetPos, maxWP)
         end
         if conn then pcall(function() conn:Disconnect() end) end
 
-        -- stuck 감지: 1.5초 대기 후 위치가 1 stud 미만으로 변했으면 벽에 박힌 것
-        if (root.Position - prePos).Magnitude < 1.0 then
-            nudgeOutOfWall(root)
-            break  -- 경로 재계산을 위해 이번 followPath 종료
+        local movedDist = (root.Position - prePos).Magnitude
+        if movedDist < 1.0 then
+            -- 고착 감지: 연속 횟수에 따라 탈출 강도 상승
+            consecutiveStuck += 1
+            if consecutiveStuck >= 3 then
+                -- 3회 이상 연속 고착 → 순찰 포인트로 텔레포트
+                if #patrolPoints > 0 then
+                    local pt = patrolPoints[math.random(1, #patrolPoints)]
+                    local ray = workspace:Raycast(pt + Vector3.new(0,10,0), Vector3.new(0,-15,0))
+                    local sy = ray and (ray.Position.Y + 2.5) or (pt.Y + 2.5)
+                    root.CFrame = CFrame.new(pt.X, sy, pt.Z)
+                else
+                    nudgeOutOfWall(root)
+                end
+                consecutiveStuck = 0
+            else
+                nudgeOutOfWall(root)
+            end
+            break
+        else
+            consecutiveStuck = 0
         end
 
         count += 1
@@ -521,6 +602,9 @@ function HunterAI.startAI()
         lastDetected = newTarget
     end
 
+    consecutiveStuck = 0
+    startStuckWatchdog()
+
     aiThread = task.spawn(function()
         while hunterModel and hunterModel.Parent do
             if isStunned then
@@ -534,9 +618,15 @@ function HunterAI.startAI()
                     updateDetected(nil)
                     -- 똥 위치로 이동 (끝까지 따라감)
                     followPath(poopInfo.pos, 999)
-                    -- 도착 후 무조건 똥 제거 (ws 미정의 버그 수정 → 거리 무관 제거)
+                    -- 헌터가 실제로 도달했을 때만 제거 (경로 실패 시 똥 유지)
                     if poopInfo.model and poopInfo.model.Parent then
-                        poopInfo.model:Destroy()
+                        local hunterRoot = hunterModel and hunterModel.PrimaryPart
+                        local poopPart   = poopInfo.model.PrimaryPart
+                                          or poopInfo.model:FindFirstChildWhichIsA("BasePart")
+                        if hunterRoot and poopPart
+                            and (hunterRoot.Position - poopPart.Position).Magnitude < 6 then
+                            poopInfo.model:Destroy()
+                        end
                     end
                 elseif nearest and dist <= sightRange then
                     updateDetected(nearest)
@@ -577,6 +667,11 @@ function HunterAI.stop()
         pcall(task.cancel, aiThread)
         aiThread = nil
     end
+    if stuckWatchdog then
+        pcall(task.cancel, stuckWatchdog)
+        stuckWatchdog = nil
+    end
+    consecutiveStuck = 0
     -- 추적 대상에게 미발견 알림
     if lastDetected then
         pcall(function()
